@@ -1,0 +1,2 @@
+benchmark_pid=14996; mode=synthetic_bgra; width=1280; height=720; fps=30; duration_seconds=120
+elapsed_seconds=120,07; accepted=3574; dropped=26; encoded=3573; hardware=True; error=none

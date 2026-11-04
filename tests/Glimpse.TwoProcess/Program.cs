@@ -10,6 +10,12 @@ using Glimpse.Networking;
 if (args.Length == 2 && args[0] == "host") { await HostAsync(args[1]); return; }
 if (args.Length == 2 && args[0] == "guest") { await GuestAsync(args[1]); return; }
 if (args.Length != 0) throw new ArgumentException("Expected no arguments.");
+// Check window placement without opening or moving any window.
+foreach (var area in new[] { new System.Windows.Rect(0,0,1920,1040), new System.Windows.Rect(0,0,1366,728), new System.Windows.Rect(-800,0,800,560) }) {
+    var placed=Glimpse.Views.InitialWindowPlacement.FitInside(area);
+    if (placed.Left < area.Left || placed.Top < area.Top || placed.Right > area.Right || placed.Bottom > area.Bottom) throw new InvalidOperationException("Window placement exceeds the usable work area.");
+}
+Console.WriteLine("Window placement fits large, small and offset work areas.");
 bool captureSupported = Windows.Graphics.Capture.GraphicsCaptureSession.IsSupported();
 Console.WriteLine($"Windows.Graphics.Capture supported: {captureSupported}");
 if (!captureSupported) throw new NotSupportedException("Windows Graphics Capture is unavailable.");

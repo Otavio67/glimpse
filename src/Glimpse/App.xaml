@@ -1,0 +1,6 @@
+<Application x:Class="Glimpse.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" StartupUri="Views/MainWindow.xaml">
+  <Application.Resources>
+    <Style TargetType="Button"><Setter Property="Background" Value="#304253"/><Setter Property="Foreground" Value="#EAF2F5"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="14,9"/><Setter Property="Margin" Value="0,0,8,0"/><Setter Property="Cursor" Value="Hand"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
+    <Style TargetType="TextBox"><Setter Property="Background" Value="#101A22"/><Setter Property="Foreground" Value="#DCEAF0"/><Setter Property="BorderBrush" Value="#3B5361"/><Setter Property="Padding" Value="8"/><Setter Property="CaretBrush" Value="White"/></Style>
+  </Application.Resources>
+</Application>

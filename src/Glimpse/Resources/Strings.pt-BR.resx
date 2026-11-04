@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="Title" xml:space="preserve"><value>Glimpse — prévia na rede local</value></data>
+  <data name="Tagline" xml:space="preserve"><value>Prévia na rede local · duas pessoas</value></data>
+  <data name="Local" xml:space="preserve"><value>LOCAL</value></data>
+  <data name="Waiting" xml:space="preserve"><value>A transmissão aparecerá aqui</value></data>
+  <data name="YourText" xml:space="preserve"><value>SEU TEXTO DE CONEXÃO</value></data>
+  <data name="OtherText" xml:space="preserve"><value>COLE O TEXTO DA OUTRA PESSOA</value></data>
+  <data name="CreateOffer" xml:space="preserve"><value>Criar oferta</value></data>
+  <data name="CreateAnswer" xml:space="preserve"><value>Criar resposta</value></data>
+  <data name="ApplyAnswer" xml:space="preserve"><value>Aplicar resposta</value></data>
+  <data name="Copy" xml:space="preserve"><value>Copiar texto</value></data>
+  <data name="Share" xml:space="preserve"><value>Compartilhar tela</value></data>
+  <data name="Stop" xml:space="preserve"><value>Parar compartilhamento</value></data>
+  <data name="Disconnect" xml:space="preserve"><value>Desconectar</value></data>
+  <data name="Session" xml:space="preserve"><value>SESSÃO</value></data>
+  <data name="PrivateLan" xml:space="preserve"><value>Rede local privada</value></data>
+  <data name="SessionDescription" xml:space="preserve"><value>Uma conexão direta entre duas pessoas para o primeiro marco.</value></data>
+  <data name="Capture" xml:space="preserve"><value>CAPTURA</value></data>
+  <data name="PickerDescription" xml:space="preserve"><value>Escolha um monitor ou uma janela no seletor do Windows.</value></data>
+  <data name="Ready" xml:space="preserve"><value>Pronto</value></data>
+  <data name="PreparingOffer" xml:space="preserve"><value>Preparando oferta…</value></data>
+  <data name="SendOffer" xml:space="preserve"><value>Envie sua oferta para seu amigo.</value></data>
+  <data name="PreparingAnswer" xml:space="preserve"><value>Preparando resposta…</value></data>
+  <data name="SendAnswer" xml:space="preserve"><value>Envie sua resposta ao anfitrião.</value></data>
+  <data name="Connecting" xml:space="preserve"><value>Conectando…</value></data>
+  <data name="Stopped" xml:space="preserve"><value>Compartilhamento encerrado; conexão mantida.</value></data>
+  <data name="Disconnected" xml:space="preserve"><value>Desconectado.</value></data>
+  <data name="CaptureCancelled" xml:space="preserve"><value>Captura cancelada.</value></data>
+  <data name="Sharing" xml:space="preserve"><value>Compartilhando · 720p · 30 fps</value></data>
+  <data name="HardwareSharing" xml:space="preserve"><value>Compartilhando · H.264 por hardware · 720p · 30 fps</value></data>
+  <data name="SoftwareSharing" xml:space="preserve"><value>Compartilhando · H.264 por software · 720p · 30 fps</value></data>
+</root>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="Title" xml:space="preserve"><value>Glimpse — LAN preview</value></data>
+  <data name="Tagline" xml:space="preserve"><value>LAN preview · one-to-one</value></data>
+  <data name="Local" xml:space="preserve"><value>LOCAL</value></data>
+  <data name="Waiting" xml:space="preserve"><value>Your stream will appear here</value></data>
+  <data name="YourText" xml:space="preserve"><value>YOUR CONNECTION TEXT</value></data>
+  <data name="OtherText" xml:space="preserve"><value>PASTE THE OTHER PERSON&#x27;S TEXT</value></data>
+  <data name="CreateOffer" xml:space="preserve"><value>Create offer</value></data>
+  <data name="CreateAnswer" xml:space="preserve"><value>Create answer</value></data>
+  <data name="ApplyAnswer" xml:space="preserve"><value>Apply answer</value></data>
+  <data name="Copy" xml:space="preserve"><value>Copy text</value></data>
+  <data name="Share" xml:space="preserve"><value>Share screen</value></data>
+  <data name="Stop" xml:space="preserve"><value>Stop sharing</value></data>
+  <data name="Disconnect" xml:space="preserve"><value>Disconnect</value></data>
+  <data name="Session" xml:space="preserve"><value>SESSION</value></data>
+  <data name="PrivateLan" xml:space="preserve"><value>Private LAN</value></data>
+  <data name="SessionDescription" xml:space="preserve"><value>A direct, one-to-one connection for the first milestone.</value></data>
+  <data name="Capture" xml:space="preserve"><value>CAPTURE</value></data>
+  <data name="PickerDescription" xml:space="preserve"><value>Choose a display or a window using the Windows picker.</value></data>
+  <data name="Ready" xml:space="preserve"><value>Ready</value></data>
+  <data name="PreparingOffer" xml:space="preserve"><value>Preparing offer…</value></data>
+  <data name="SendOffer" xml:space="preserve"><value>Send your offer to your friend.</value></data>
+  <data name="PreparingAnswer" xml:space="preserve"><value>Preparing answer…</value></data>
+  <data name="SendAnswer" xml:space="preserve"><value>Send your answer to the host.</value></data>
+  <data name="Connecting" xml:space="preserve"><value>Connecting…</value></data>
+  <data name="Stopped" xml:space="preserve"><value>Sharing stopped; connection remains open.</value></data>
+  <data name="Disconnected" xml:space="preserve"><value>Disconnected.</value></data>
+  <data name="CaptureCancelled" xml:space="preserve"><value>Capture cancelled.</value></data>
+  <data name="Sharing" xml:space="preserve"><value>Sharing · 720p · 30 fps</value></data>
+  <data name="HardwareSharing" xml:space="preserve"><value>Sharing · hardware H.264 · 720p · 30 fps</value></data>
+  <data name="SoftwareSharing" xml:space="preserve"><value>Sharing · software H.264 · 720p · 30 fps</value></data>
+</root>

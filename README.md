@@ -8,6 +8,26 @@ The project compiles on .NET 10. A headless test passed with generated video on 
 
 The Windows picker lists displays and windows; only the selected item is captured. The encoder operates at 720p/30 fps, with a fixed 2.5 Mbps target. Frames are currently copied from GPU textures to CPU memory before FFmpeg; GPU encoding does not imply a zero-copy pipeline or guarantee low CPU usage. A resize requires stopping and selecting the source again. Minimized/protected content can be unavailable. No audio is captured.
 
+## Project-local development setup
+
+On Windows x64, the following installs .NET SDK 10.0.403 and Gyan.dev's FFmpeg 9.0.2 Essentials in `.tools/` inside this checkout. It checks the FFmpeg archive against a pinned SHA-256, and verifies the required encoder and filter. It does not modify the system PATH. Downloading the .NET installer and FFmpeg archive requires internet access.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Setup-Environment.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Dev.ps1 -Action Build
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Dev.ps1 -Action Test
+```
+
+`Test` uses only generated frames, without launching the interface or capturing a screen. It first runs an in-process media test, then starts **two independent headless processes** on the same computer and exchanges SDP through temporary files to exercise WebRTC and decoding. It also checks whether Windows Graphics Capture is supported without starting a capture. It does not validate a live monitor/window or connectivity between physical computers.
+
+When you are ready to open the app yourself, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Dev.ps1 -Action Run
+```
+
+The commands in the remaining sections describe the equivalent manual setup and testing with a separately installed SDK and FFmpeg. Project-local binaries are ignored by Git and must be installed separately on each computer. The bundled FFmpeg build is downloaded locally, is GPL-enabled, and is not committed to the repository.
+
 ## Prerequisites
 
 - Windows 10 2004 (19041) or newer, x64, and a working Direct3D 11 device.
@@ -64,7 +84,9 @@ It generates artificial BGRA frames in memory, encodes them, sends them over two
 - `src/Glimpse/Networking/LocalPeer.cs`: direct LAN WebRTC peer and manual offer/answer.
 - `src/Glimpse/Views`, `ViewModels`: WPF presentation and session orchestration.
 - `src/Glimpse/Resources`: English and pt-BR resource files for primary UI labels. English is the default; for resource testing only, set `GLIMPSE_UI_CULTURE=pt-BR` before starting. Some tooltips, technical errors and status messages remain English.
-- `tests/Glimpse.Headless`: artificial-video integration test.
+- `tests/Glimpse.Headless`: artificial-video integration test in one process.
+- `tests/Glimpse.TwoProcess`: independent-process WebRTC test with generated frames and no screen capture.
+- `scripts/`: project-local dependency setup and build/test/run commands.
 
 Errors handled by the session are appended to `%LOCALAPPDATA%\Glimpse\errors.log`; there is no telemetry. Some exceptions can contain technical details such as file paths. Normal SDP values are not intentionally logged.
 

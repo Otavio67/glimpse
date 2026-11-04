@@ -1,6 +1,6 @@
 # Glimpse — milestone 1: LAN preview
 
-A native Windows WPF/.NET 10 prototype for one-way sharing between two Glimpse instances. This is milestone 1, not the finished product. It uses the Windows picker, Windows.Graphics.Capture, H.264 via Media Foundation, and SIPSorcery WebRTC. A room code establishes a direct, encrypted connection to the host for exchanging SDP; there is no separate signaling server. The code contains the host LAN IP, port, certificate fingerprint, and secret.
+A native Windows WPF/.NET 10 prototype for two-way sharing between two Glimpse instances. This is milestone 1, not the finished product. It uses the Windows picker, Windows.Graphics.Capture, H.264 via Media Foundation, and SIPSorcery WebRTC. A room code establishes a direct, encrypted connection to the host for exchanging SDP; there is no separate signaling server. The code contains the host LAN IP, port, certificate fingerprint, and secret.
 
 ## Status and boundaries
 
@@ -18,7 +18,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Dev.ps1 -Action Buil
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Dev.ps1 -Action Test
 ```
 
-`Test` uses only generated frames, without launching the interface or capturing a screen. It first runs an in-process media test, then starts **two independent headless processes** on the same computer and exchanges a direct room code through temporary files to exercise negotiation, WebRTC and decoding. It also checks whether Windows Graphics Capture is supported without starting a capture. It does not validate a live monitor/window or connectivity between physical computers.
+`Test` uses only generated frames, without launching the interface or capturing a screen. It first runs an in-process media test, then starts **two independent headless processes** on the same computer and exchanges a direct room code through temporary files to exercise negotiation, WebRTC and decoding in both directions. It also checks whether Windows Graphics Capture is supported without starting a capture. It does not validate a live monitor/window or connectivity between physical computers.
 
 When you are ready to open the app yourself, run:
 
@@ -59,10 +59,10 @@ If Media Foundation reports a hardware H.264 MFT, the app requests FFmpeg's `h26
 1. Os dois computadores precisam estar na mesma rede local e permitir conexões TCP e UDP no firewall.
 2. No computador anfitrião, clique em **Criar sala** e envie o **código da sala** ao seu amigo por um canal confiável.
 3. O amigo cola o código no campo e clica em **Entrar em uma sala existente**. Aguarde a conexão.
-4. O anfitrião escolhe **Uma janela específica** ou **Tela inteira** e seleciona a fonte no seletor do Windows. A tela inteira mostra as janelas visíveis naquele monitor.
+4. Qualquer uma das duas pessoas pode escolher **Uma janela específica** ou **Tela inteira** e selecionar a fonte no seletor do Windows. A tela inteira mostra as janelas visíveis naquele monitor.
 5. **Parar compartilhamento** mantém a conexão; **Sair da sala** encerra a sessão.
 
-A sala direta aceita um convidado, funciona em redes que permitem conexão direta entre os computadores e não possui servidor intermediário. O código é longo porque contém o endereço local e credenciais criptográficas. Ele não funciona automaticamente entre redes diferentes, especialmente com NAT ou firewalls. Um servidor público de sinalização e, em redes restritas, um servidor TURN ainda precisam ser configurados. A troca do código deve ser feita em um canal confiável; quem o possui pode tentar entrar na sala. O código atual é de uso único: crie outra sala se precisar conectar novamente.
+A sala direta aceita um convidado; ambos podem transmitir, funciona em redes que permitem conexão direta entre os computadores e não possui servidor intermediário. O código é longo porque contém o endereço local e credenciais criptográficas. Ele não funciona automaticamente entre redes diferentes, especialmente com NAT ou firewalls. Um servidor público de sinalização e, em redes restritas, um servidor TURN ainda precisam ser configurados. A troca do código deve ser feita em um canal confiável; quem o possui pode tentar entrar na sala. O código atual é de uso único: crie outra sala se precisar conectar novamente.
 
 ## Headless test with generated frames — no screen capture
 
@@ -95,7 +95,7 @@ SharpDX uses the MIT license. FFmpeg licenses vary by build configuration, inclu
 
 ## Known limitations and next steps
 
-- Actual Windows Graphics Capture end-to-end and two-PC LAN use need hands-on validation; no user screen was used during development tests.
+- Actual Windows Graphics Capture end-to-end and two-PC LAN use need hands-on validation; no user screen was used during development tests. The last received frame may remain visible after the other participant stops sharing.
 - Direct rooms currently accept one viewer and connect only where the host is reachable by its local IPv4 address. Internet-ready signaling, short server-side codes, multiple viewers, STUN/TURN settings, reconnect and adaptive bitrate are **not implemented**.
 - Quality selection, 1080p/60, stats overlay, measurement/optimization of CPU and memory, GPU texture-to-encoder transfer, light theme, comprehensive accessibility/localization and settings are **not implemented**.
 - Protocol registration, single-instance link handling, a landing page, installer and portable distributable are **not implemented**.

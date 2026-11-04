@@ -12,7 +12,7 @@ public sealed class LocalPeer : IDisposable
     {
         _pc = new RTCPeerConnection(new RTCConfiguration());
         var format = new VideoFormat(VideoCodecsEnum.H264, 102, 90000, "packetization-mode=1;profile-level-id=42e01f;level-asymmetry-allowed=1");
-        _pc.addTrack(new MediaStreamTrack(new List<VideoFormat> { format }, sender ? MediaStreamStatusEnum.SendOnly : MediaStreamStatusEnum.RecvOnly));
+        _pc.addTrack(new MediaStreamTrack(new List<VideoFormat> { format }, MediaStreamStatusEnum.SendRecv));
         _pc.OnVideoFrameReceived += (_, _, frame, _) => VideoFrame?.Invoke(frame);
         _pc.onconnectionstatechange += state => StateChanged?.Invoke(state.ToString());
     }
@@ -38,4 +38,3 @@ public sealed class LocalPeer : IDisposable
     public void Send(byte[] accessUnit, int fps) { if (IsConnected) _pc.SendVideo((uint)(90000 / fps), accessUnit); }
     public void Dispose() { _pc.close(); _pc.Dispose(); }
 }
-

@@ -26,10 +26,10 @@ try {
     Console.Write(await hostOut); Console.Write(await guestOut);
     var errors = (await hostErr) + (await guestErr); if (!string.IsNullOrWhiteSpace(errors)) Console.Error.Write(errors);
     if (host.ExitCode != 0 || guest.ExitCode != 0) throw new InvalidOperationException($"Host exit {host.ExitCode}; guest exit {guest.ExitCode}.");
-    Console.WriteLine("Two independent processes exchanged synthetic H.264 video over WebRTC; no screen was captured.");
+    Console.WriteLine("Two independent processes exchanged synthetic H.264 video in both directions; no screen was captured.");
 }
 finally {
-    foreach (var name in new[] { "offer", "answer", "done", "result", "offer.tmp", "answer.tmp", "done.tmp", "result.tmp" }) {
+    foreach (var name in new[] { "offer", "answer", "done", "result", "guestdone", "hostresult", "guestdone.tmp", "hostresult.tmp", "offer.tmp", "answer.tmp", "done.tmp", "result.tmp" }) {
         var file = Path.Combine(runDir, name); if (File.Exists(file)) File.Delete(file);
     }
     Directory.Delete(runDir);
@@ -58,6 +58,11 @@ static async Task WaitConnectedAsync(LocalPeer peer) {
 static async Task HostAsync(string dir) {
     using var peer=new LocalPeer(true);
     using var room=new DirectRoomHost(IPAddress.Loopback);
+    using var recvCancel=new CancellationTokenSource(TimeSpan.FromSeconds(65)); using var decoder=new H264Decoder();
+    int hostReceived=0, hostDecoded=0;
+    decoder.Frame+=_=>Interlocked.Increment(ref hostDecoded);
+    peer.VideoFrame+=frame=>{Interlocked.Increment(ref hostReceived);decoder.TryWrite(frame);};
+    var decodeTask=Task.Run(()=>decoder.RunAsync(recvCancel.Token));
     room.Error += message => Console.Error.WriteLine(message);
     await PublishAsync(dir,"offer",room.Code); await room.WaitForGuestAsync(peer); await WaitConnectedAsync(peer);
     using var cancel=new CancellationTokenSource(TimeSpan.FromSeconds(50)); using var encoder=new H264Encoder();
@@ -71,6 +76,9 @@ static async Task HostAsync(string dir) {
     await PublishAsync(dir,"done",sent.ToString());
     string result=await WaitForAsync(dir,"result"); Console.WriteLine($"Host: encoder={(encoder.UsingHardware?"hardware":"software")}, sent={sent}, guest={result}");
     if (!result.StartsWith("ok:",StringComparison.Ordinal)) throw new InvalidOperationException("Guest failed: "+result);
+    await WaitForAsync(dir,"guestdone"); await Task.Delay(2000); recvCancel.Cancel(); try { await decodeTask; } catch(OperationCanceledException) { }
+    if(hostReceived==0 || hostDecoded==0) { await PublishAsync(dir,"hostresult","erro"); throw new InvalidOperationException($"Host received={hostReceived}, decoded={hostDecoded}."); }
+    await PublishAsync(dir,"hostresult","ok"); Console.WriteLine($"Host received={hostReceived}, decoded={hostDecoded}");
 }
 static async Task GuestAsync(string dir) {
     using var peer=new LocalPeer(false); using var cancel=new CancellationTokenSource(TimeSpan.FromSeconds(65)); using var decoder=new H264Decoder();
@@ -83,4 +91,14 @@ static async Task GuestAsync(string dir) {
     if (error is not null || received==0 || decoded==0) { await PublishAsync(dir,"result","error:"+(error??$"received={received}, decoded={decoded}")); throw new InvalidOperationException(error??"No decoded video."); }
     await PublishAsync(dir,"result",$"ok:received={received},decoded={decoded}");
     Console.WriteLine($"Guest: received={received}, decoded={decoded}");
+    using var sendCancel=new CancellationTokenSource(TimeSpan.FromSeconds(40)); using var encoder=new H264Encoder();
+    int sent=0; string? sendError=null; encoder.Error+=message=>sendError=message; encoder.AccessUnit+=frame=>{Interlocked.Increment(ref sent);peer.Send(frame,30);};
+    var channel=Channel.CreateBounded<byte[]>(new BoundedChannelOptions(2){FullMode=BoundedChannelFullMode.Wait});
+    var encodeTask=Task.Run(()=>encoder.RunAsync(channel.Reader,320,180,30,sendCancel.Token));
+    for(int n=0;n<120;n++){var frame=new byte[320*180*4]; for(int i=0;i<frame.Length;i+=4){frame[i]=(byte)(n*2);frame[i+1]=(byte)(i/4%256);frame[i+2]=80;frame[i+3]=255;} await channel.Writer.WriteAsync(frame,sendCancel.Token); await Task.Delay(33,sendCancel.Token);}
+    channel.Writer.Complete(); await encodeTask.WaitAsync(TimeSpan.FromSeconds(20));
+    if(sendError is not null || sent==0) throw new InvalidOperationException(sendError??"Guest sent no frames.");
+    await PublishAsync(dir,"guestdone",sent.ToString());
+    var hostResult=await WaitForAsync(dir,"hostresult"); if(hostResult!="ok")throw new InvalidOperationException("Host failed to receive video.");
+    Console.WriteLine($"Guest sent={sent}; host result={hostResult}");
 }

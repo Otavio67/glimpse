@@ -42,7 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _owner=owner;
         CreateRoomCommand=new AsyncCommand(()=>{
             Reset(); _sender=true; CreatePeer(true);
-            try { _roomHost=new DirectRoomHost(); _roomHost.Error += Error; LocalText=_roomHost.Code; Status="Sala criada. Compartilhe o código com seu amigo."; _= _roomHost.WaitForGuestAsync(_peer!); }
+            try { _roomHost=new DirectRoomHost(); StartDecoder(); _roomHost.Error += Error; LocalText=_roomHost.Code; Status="Sala criada. Compartilhe o código com seu amigo."; _= _roomHost.WaitForGuestAsync(_peer!); }
             catch { Reset(); throw; }
             return Task.CompletedTask;
         });
@@ -67,7 +67,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _peer.VideoFrame += data => { if (_decoder is not null && !_decoder.TryWrite(data)) OnUi(()=>Status="Recepção sobrecarregada. Saia da sala e tente novamente."); };
     }
     private async Task StartCaptureAsync() {
-        if (!_sender || _peer is null || !_peer.IsConnected) throw new InvalidOperationException("Crie uma sala e aguarde seu amigo entrar antes de compartilhar.");
+        if (_peer is null || !_peer.IsConnected) throw new InvalidOperationException("Entre em uma sala e aguarde a conexão antes de compartilhar.");
         StopCapture(); var source=new WindowsCaptureSource();
         try { if (!await source.PickAsync(_owner(), 30)) { source.Dispose(); Status=Strings.CaptureCancelled; return; } }
         catch { source.Dispose(); throw; }

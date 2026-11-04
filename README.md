@@ -1,6 +1,6 @@
 # Glimpse — milestone 1: LAN preview
 
-A native Windows WPF/.NET 10 prototype for one-way sharing between two Glimpse instances. This is milestone 1, not the finished product. It uses the Windows picker, Windows.Graphics.Capture, H.264 via Media Foundation, and SIPSorcery WebRTC. The two peers exchange SDP text manually; there is no separate signaling server.
+A native Windows WPF/.NET 10 prototype for one-way sharing between two Glimpse instances. This is milestone 1, not the finished product. It uses the Windows picker, Windows.Graphics.Capture, H.264 via Media Foundation, and SIPSorcery WebRTC. A room code establishes a direct, encrypted connection to the host for exchanging SDP; there is no separate signaling server. The code contains the host LAN IP, port, certificate fingerprint, and secret.
 
 ## Status and boundaries
 
@@ -18,7 +18,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Dev.ps1 -Action Buil
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Dev.ps1 -Action Test
 ```
 
-`Test` uses only generated frames, without launching the interface or capturing a screen. It first runs an in-process media test, then starts **two independent headless processes** on the same computer and exchanges SDP through temporary files to exercise WebRTC and decoding. It also checks whether Windows Graphics Capture is supported without starting a capture. It does not validate a live monitor/window or connectivity between physical computers.
+`Test` uses only generated frames, without launching the interface or capturing a screen. It first runs an in-process media test, then starts **two independent headless processes** on the same computer and exchanges a direct room code through temporary files to exercise negotiation, WebRTC and decoding. It also checks whether Windows Graphics Capture is supported without starting a capture. It does not validate a live monitor/window or connectivity between physical computers.
 
 When you are ready to open the app yourself, run:
 
@@ -54,16 +54,15 @@ dotnet run --project src/Glimpse/Glimpse.csproj -c Release
 
 If Media Foundation reports a hardware H.264 MFT, the app requests FFmpeg's `h264_mf -hw_encoding 1`; if none is registered, it requests software. A registered but malfunctioning or incompatible hardware encoder produces an error rather than silently changing to software. The on-screen status indicates the selected mode. The driver must support the requested format and resolution.
 
-## Manual two-computer test
+## Teste de sala entre dois computadores
 
-1. Build and run Glimpse on **both** computers. Install the FFmpeg dependency on each.
-2. On the host, click **Create offer**, copy the text, and send it privately to the guest.
-3. The guest pastes it in the right-hand field and clicks **Create answer**. They send their generated text back privately.
-4. The host pastes the answer and clicks **Apply answer**. Wait for `Connection: connected` on both sides.
-5. The host clicks **Share screen** and selects a display or window in the Windows picker. The guest should see it. Only do this when you are ready to share the selected content.
-6. **Stop sharing** stops capture while leaving the peer connection open. **Disconnect** closes the connection.
+1. Os dois computadores precisam estar na mesma rede local e permitir conexões TCP e UDP no firewall.
+2. No computador anfitrião, clique em **Criar sala** e envie o **código da sala** ao seu amigo por um canal confiável.
+3. O amigo cola o código no campo e clica em **Entrar em uma sala existente**. Aguarde a conexão.
+4. O anfitrião escolhe **Uma janela específica** ou **Tela inteira** e seleciona a fonte no seletor do Windows. A tela inteira mostra as janelas visíveis naquele monitor.
+5. **Parar compartilhamento** mantém a conexão; **Sair da sala** encerra a sessão.
 
-Exchange SDP only over a trusted channel: it includes network addresses and the peer fingerprints used for DTLS authentication. The prototype does not verify your friend's identity independently. Do not expose its SDP exchange to untrusted users. SIPSorcery supplies DTLS-SRTP for the media transport; no security audit has been performed.
+A sala direta aceita um convidado, funciona em redes que permitem conexão direta entre os computadores e não possui servidor intermediário. O código é longo porque contém o endereço local e credenciais criptográficas. Ele não funciona automaticamente entre redes diferentes, especialmente com NAT ou firewalls. Um servidor público de sinalização e, em redes restritas, um servidor TURN ainda precisam ser configurados. A troca do código deve ser feita em um canal confiável; quem o possui pode tentar entrar na sala. O código atual é de uso único: crie outra sala se precisar conectar novamente.
 
 ## Headless test with generated frames — no screen capture
 
@@ -81,7 +80,7 @@ It generates artificial BGRA frames in memory, encodes them, sends them over two
 - `src/Glimpse/Capture/WindowsCaptureSource.cs`: system picker, WGC frame pool and D3D11 texture readback.
 - `src/Glimpse/Encoding/HardwareEncoderProbe.cs`: Media Foundation hardware-MFT enumeration.
 - `src/Glimpse/Encoding/H264Encoder.cs`, `H264Decoder.cs`, `AnnexBAccessUnits.cs`: FFmpeg process, H.264 access units and decoding.
-- `src/Glimpse/Networking/LocalPeer.cs`: direct LAN WebRTC peer and manual offer/answer.
+- `src/Glimpse/Networking/LocalPeer.cs` and `DirectRoom.cs`: WebRTC peer and encrypted direct LAN room negotiation.
 - `src/Glimpse/Views`, `ViewModels`: WPF presentation and session orchestration.
 - `src/Glimpse/Resources`: English and pt-BR resource files for primary UI labels. English is the default; for resource testing only, set `GLIMPSE_UI_CULTURE=pt-BR` before starting. Some tooltips, technical errors and status messages remain English.
 - `tests/Glimpse.Headless`: artificial-video integration test in one process.
@@ -97,8 +96,8 @@ SharpDX uses the MIT license. FFmpeg licenses vary by build configuration, inclu
 ## Known limitations and next steps
 
 - Actual Windows Graphics Capture end-to-end and two-PC LAN use need hands-on validation; no user screen was used during development tests.
-- The one-to-one test uses manual SDP text. Rooms, links, automatic signaling, server expiry, multiple viewers, STUN/TURN settings, reconnect and adaptive bitrate are **not implemented** in this milestone.
+- Direct rooms currently accept one viewer and connect only where the host is reachable by its local IPv4 address. Internet-ready signaling, short server-side codes, multiple viewers, STUN/TURN settings, reconnect and adaptive bitrate are **not implemented**.
 - Quality selection, 1080p/60, stats overlay, measurement/optimization of CPU and memory, GPU texture-to-encoder transfer, light theme, comprehensive accessibility/localization and settings are **not implemented**.
 - Protocol registration, single-instance link handling, a landing page, installer and portable distributable are **not implemented**.
-- No signaling server project/API is supplied yet: the user asked to wait for confirmation before implementing signaling and rooms.
+- No publicly deployed signaling server or relay is included yet; these are needed for convenient use between separate networks.
 - Prioritize capture correctness, predictable disposal, authenticated signaling, congestion handling, and performance profiling on multiple GPUs before calling this production-ready.

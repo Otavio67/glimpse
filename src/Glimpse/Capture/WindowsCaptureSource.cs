@@ -36,13 +36,13 @@ public sealed class WindowsCaptureSource : IDisposable
 
     public async Task<bool> PickAsync(IntPtr owner, int fps)
     {
-        if (!GraphicsCaptureSession.IsSupported()) throw new NotSupportedException("Windows Graphics Capture is unavailable on this system.");
+        if (!GraphicsCaptureSession.IsSupported()) throw new NotSupportedException("A captura de tela do Windows não está disponível neste computador.");
         var picker = new GraphicsCapturePicker();
         picker.As<IInitializeWithWindow>().Initialize(owner);
         var item = await picker.PickSingleItemAsync();
         if (item is null) return false;
         _fps = fps; _width = item.Size.Width; _height = item.Size.Height;
-        if (_width <= 0 || _height <= 0) throw new InvalidOperationException("The selected source has no visible size.");
+        if (_width <= 0 || _height <= 0) throw new InvalidOperationException("A fonte selecionada não possui uma área visível.");
         using var dxgi = _d3d.QueryInterface<SharpDX.DXGI.Device>();
         Marshal.ThrowExceptionForHR(CreateDirect3D11DeviceFromDXGIDevice(dxgi.NativePointer, out var ptr));
         try { _device = MarshalInterface<IDirect3DDevice>.FromAbi(ptr); } finally { Marshal.Release(ptr); }
@@ -50,7 +50,7 @@ public sealed class WindowsCaptureSource : IDisposable
         _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(_device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, item.Size);
         _session = _pool.CreateCaptureSession(item);
         _pool.FrameArrived += OnFrame;
-        item.Closed += (_, _) => { Error?.Invoke("The selected window was closed."); _frames.Writer.TryComplete(); };
+        item.Closed += (_, _) => { Error?.Invoke("A janela selecionada foi fechada."); _frames.Writer.TryComplete(); };
         return true;
     }
     public void Start() => _session?.StartCapture();
@@ -60,7 +60,7 @@ public sealed class WindowsCaptureSource : IDisposable
         {
             using var frame = pool.TryGetNextFrame();
             if (frame is null) return;
-            if (frame.ContentSize.Width != _width || frame.ContentSize.Height != _height) { Error?.Invoke("Source size changed. Stop sharing and select it again."); _frames.Writer.TryComplete(); return; }
+            if (frame.ContentSize.Width != _width || frame.ContentSize.Height != _height) { Error?.Invoke("O tamanho da fonte mudou. Pare o compartilhamento e selecione novamente."); _frames.Writer.TryComplete(); return; }
             long now = Environment.TickCount64;
             if (now - _lastFrame < 1000 / _fps) return;
             _lastFrame = now;

@@ -16,11 +16,11 @@ public sealed class H264Decoder : IDisposable
         try {
             while (!cancel.IsCancellationRequested) {
                 byte[] pixels = new byte[1280 * 720 * 4]; int used = 0;
-                while (used < pixels.Length) { int n = await proc.StandardOutput.BaseStream.ReadAsync(pixels.AsMemory(used), cancel); if (n == 0) throw new EndOfStreamException("Decoder closed: " + (proc.HasExited ? await stderr : "no more video")); used += n; }
+                while (used < pixels.Length) { int n = await proc.StandardOutput.BaseStream.ReadAsync(pixels.AsMemory(used), cancel); if (n == 0) throw new EndOfStreamException("Decodificador encerrado: " + (proc.HasExited ? await stderr : "nenhuma imagem recebida")); used += n; }
                 Frame?.Invoke(pixels);
             }
         } catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
-          catch (Exception ex) { Error?.Invoke("Decoder stopped: " + ex.Message); }
+          catch (Exception ex) { Error?.Invoke("Decodificador interrompido: " + ex.Message); }
         finally { _input.Writer.TryComplete(); Dispose(); try { await write; } catch { } }
     }
     public void Dispose() { _input.Writer.TryComplete(); try { if (_process is { HasExited: false }) _process.Kill(true); } catch { } _process?.Dispose(); _process = null; }

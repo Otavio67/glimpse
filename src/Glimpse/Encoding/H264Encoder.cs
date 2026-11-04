@@ -19,13 +19,12 @@ public sealed class H264Encoder : IDisposable
         var read = Task.Run(async () => { var parser = new AnnexBAccessUnits(); var buffer = new byte[32768]; int n; while ((n = await proc.StandardOutput.BaseStream.ReadAsync(buffer, cancel)) > 0) foreach (var unit in parser.Push(buffer.AsSpan(0,n))) AccessUnit?.Invoke(unit); }, cancel);
         try { await foreach (var frame in frames.ReadAllAsync(cancel)) await proc.StandardInput.BaseStream.WriteAsync(frame, cancel); proc.StandardInput.Close(); await read; await proc.WaitForExitAsync(cancel); if (proc.ExitCode != 0) throw new InvalidOperationException(await stderr); }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
-        catch (Exception ex) { Error?.Invoke("Encoder stopped: " + ex.Message); }
+        catch (Exception ex) { Error?.Invoke("Codificador interrompido: " + ex.Message); }
         finally { Dispose(); }
     }
     internal static Process Start(string arguments) {
         var file = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"); if (!File.Exists(file)) file = "ffmpeg.exe";
-        return Process.Start(new ProcessStartInfo(file, arguments) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true }) ?? throw new InvalidOperationException("Could not start FFmpeg.");
+        return Process.Start(new ProcessStartInfo(file, arguments) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true }) ?? throw new InvalidOperationException("Não foi possível iniciar o FFmpeg.");
     }
     public void Dispose() { try { if (_process is { HasExited: false }) _process.Kill(true); } catch { } _process?.Dispose(); _process = null; }
 }
-

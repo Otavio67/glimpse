@@ -101,3 +101,7 @@ SharpDX uses the MIT license. FFmpeg licenses vary by build configuration, inclu
 - Protocol registration, single-instance link handling, a landing page, installer and portable distributable are **not implemented**.
 - No publicly deployed signaling server or relay is included yet; these are needed for convenient use between separate networks.
 - Prioritize capture correctness, predictable disposal, authenticated signaling, congestion handling, and performance profiling on multiple GPUs before calling this production-ready.
+
+## GPU encoder work in progress
+
+A two-minute synthetic baseline and an isolated GPU/MFT feasibility probe are saved under `docs/perf/`, `benchmarks/Glimpse.Baseline`, and `tests/Glimpse.GpuProbe`. See `docs/milestone-1-progress.md` for the plan, MIT-licensed test dependencies, results, risks, and unimplemented work. **The production capture, encoder, and decoder are not replaced yet and still use FFmpeg.** No before/after end-to-end performance comparison or new distributable is available.

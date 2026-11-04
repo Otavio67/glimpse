@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.IO;
 using System.Reflection;
 using System.Threading.Channels;
@@ -56,8 +57,9 @@ static async Task WaitConnectedAsync(LocalPeer peer) {
 }
 static async Task HostAsync(string dir) {
     using var peer=new LocalPeer(true);
-    await PublishAsync(dir,"offer",await peer.CreateOfferAsync());
-    peer.AcceptAnswer(await WaitForAsync(dir,"answer")); await WaitConnectedAsync(peer);
+    using var room=new DirectRoomHost(IPAddress.Loopback);
+    room.Error += message => Console.Error.WriteLine(message);
+    await PublishAsync(dir,"offer",room.Code); await room.WaitForGuestAsync(peer); await WaitConnectedAsync(peer);
     using var cancel=new CancellationTokenSource(TimeSpan.FromSeconds(50)); using var encoder=new H264Encoder();
     int sent=0; string? error=null;
     encoder.Error+=message=>error=message; encoder.AccessUnit+=frame=>{ Interlocked.Increment(ref sent); peer.Send(frame,30); };
@@ -76,10 +78,9 @@ static async Task GuestAsync(string dir) {
     decoder.Frame+=_=>Interlocked.Increment(ref decoded); decoder.Error+=message=>error=message;
     peer.VideoFrame+=frame=>{ Interlocked.Increment(ref received); if (!decoder.TryWrite(frame)) error="Decoder queue full."; };
     var task=Task.Run(()=>decoder.RunAsync(cancel.Token));
-    var offer=await WaitForAsync(dir,"offer"); await PublishAsync(dir,"answer",await peer.AcceptOfferAsync(offer)); await WaitConnectedAsync(peer);
+    var code=await WaitForAsync(dir,"offer"); await DirectRoomGuest.JoinAsync(code,peer,cancel.Token); await WaitConnectedAsync(peer);
     await WaitForAsync(dir,"done"); await Task.Delay(2000); cancel.Cancel(); try { await task; } catch(OperationCanceledException) { }
     if (error is not null || received==0 || decoded==0) { await PublishAsync(dir,"result","error:"+(error??$"received={received}, decoded={decoded}")); throw new InvalidOperationException(error??"No decoded video."); }
     await PublishAsync(dir,"result",$"ok:received={received},decoded={decoded}");
     Console.WriteLine($"Guest: received={received}, decoded={decoded}");
 }
-

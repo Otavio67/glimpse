@@ -16,6 +16,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly Func<IntPtr> _owner;
     private readonly Action<bool>? _openRoomDialog;
+    private readonly Func<string?>? _chooseShareSource;
     private readonly System.Windows.Threading.Dispatcher _dispatcher = Application.Current.Dispatcher;
     private LocalPeer? _peer;
     private DirectRoomHost? _roomHost;
@@ -39,6 +40,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private string _signalingServer=RoomServerSettings.Load();
     private ImageSource? _frame;
     private bool _isInRoom;
+    private bool _isSharingLocal;
+    private int _localPreviewPending;
+    private WriteableBitmap? _localPreviewBitmap;
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Status { get => _status; private set => Set(ref _status,value); }
     public string LocalText { get => _local; private set { Set(ref _local,value); Notify(nameof(InvitationVisibility)); } }
@@ -55,6 +59,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public Visibility RoomControlsVisibility => IsInRoom ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RoomEntryVisibility => IsInRoom ? Visibility.Collapsed : Visibility.Visible;
     public Visibility InvitationVisibility => string.IsNullOrEmpty(LocalText) ? Visibility.Collapsed : Visibility.Visible;
+    public bool IsSharingLocal { get=>_isSharingLocal; private set { Set(ref _isSharingLocal,value); Notify(nameof(ShareAreaLabel)); } }
+    public string ShareAreaLabel => IsSharingLocal ? "◉  SUA PRÉVIA" : "◉  COMPARTILHAMENTO";
     public string ParticipantsText => _participantCount==0 ? (IsInRoom ? "Sala conectada" : "Nenhuma sala conectada") : $"{_participantCount} de 8 pessoas na sala";
     public string WaitingMessage => IsInRoom ? "Compartilhe sua tela ou aguarde uma apresentação." : "Hospede uma sala ou entre na sala de um amigo.";
     public string RoomTitle => NativeMode ? "Sala direta" : UseInternetRooms ? "Sala pela internet" : "Sala local";
@@ -73,9 +79,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ShareCommand { get; }
     public ICommand StopCommand { get; }
     public ICommand DisconnectCommand { get; }
-    public MainViewModel(Func<IntPtr> owner,Action<bool>? openRoomDialog=null) {
+    public MainViewModel(Func<IntPtr> owner,Action<bool>? openRoomDialog=null,Func<string?>? chooseShareSource=null) {
         _owner=owner;
         _openRoomDialog=openRoomDialog;
+        _chooseShareSource=chooseShareSource;
         OpenHostRoomCommand=new AsyncCommand(()=>{ _openRoomDialog?.Invoke(true); return Task.CompletedTask; });
         OpenJoinRoomCommand=new AsyncCommand(()=>{ _openRoomDialog?.Invoke(false); return Task.CompletedTask; });
         CreateRoomCommand=new AsyncCommand(async()=>{
@@ -243,25 +250,43 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     }
     private async Task StartCaptureAsync() {
         if (_nativeHub is null && _nativeConnection?.IsConnected!=true && _peer?.IsConnected!=true) throw new InvalidOperationException("Entre em uma sala e aguarde a conexão antes de compartilhar.");
+        var choice=_chooseShareSource?.Invoke();
+        if(_chooseShareSource is not null && choice is null) return;
         var version=_sessionVersion;
         var peer=_peer;
         var native=_nativeConnection;
         var hub=_nativeHub;
         bool wasSharing=_capture is not null;
-        StopCapture();
-        if(wasSharing) { hub?.StopHostSharing(); native?.NotifySharingStopped(); }
         var source=new WindowsCaptureSource();
-        try { if (!await source.PickAsync(_owner(), 30)) { source.Dispose(); Status=Strings.CaptureCancelled; return; } }
+        Status=choice=="window" ? "No seletor do Windows, escolha a janela para compartilhar." : "No seletor do Windows, escolha a tela para compartilhar.";
+        try { if (!await source.PickAsync(_owner(), 30)) { source.Dispose(); if(version==_sessionVersion) Status=IsSharingLocal ? Strings.Sharing : Strings.CaptureCancelled; return; } }
         catch { source.Dispose(); throw; }
         if (version!=_sessionVersion || (hub is null && native?.IsConnected!=true && peer?.IsConnected!=true)) { source.Dispose(); return; }
+        StopCapture();
+        if(wasSharing) { hub?.StopHostSharing(); native?.NotifySharingStopped(); }
         _capture=source; _captureCancellation=new(); _encoder=new H264Encoder();
         var encoder=_encoder; var token=_captureCancellation.Token;
         _capture.Error += message=>ReportError(message,version); _encoder.Error += message=>ReportError(message,version);
         _encoder.EncoderSelected += hardware => OnUi(() => { if (version==_sessionVersion && !token.IsCancellationRequested) Status = hardware ? Strings.HardwareSharing : Strings.SoftwareSharing; });
         hub?.BeginHostSharing(); native?.NotifySharingStarted();
+        IsSharingLocal=true; Frame=null;
+        source.PreviewFrame+=(pixels,width,height)=>QueueLocalPreview(source,pixels,width,height,version,token);
         _encoder.AccessUnit += bytes => { if(version==_sessionVersion && !token.IsCancellationRequested) { if(hub is not null) hub.TrySendVideo(bytes); else if(native is not null) native.TrySendVideo(bytes); else peer?.Send(bytes,30); } };
         _=Task.Run(async()=>{ try { await encoder.RunAsync(source.Frames,source.Width,source.Height,30,token); } catch (Exception ex) { if(!token.IsCancellationRequested) ReportError(ex.Message,version); } });
         source.Start(); Status=Strings.Sharing;
+    }
+    private void QueueLocalPreview(WindowsCaptureSource source,byte[] pixels,int width,int height,int version,CancellationToken token) {
+        if(token.IsCancellationRequested || version!=_sessionVersion || Interlocked.CompareExchange(ref _localPreviewPending,1,0)!=0) return;
+        _dispatcher.BeginInvoke(()=>{
+            try {
+                if(token.IsCancellationRequested || version!=_sessionVersion || !ReferenceEquals(_capture,source) || !IsSharingLocal) return;
+                if(_localPreviewBitmap is null || _localPreviewBitmap.PixelWidth!=width || _localPreviewBitmap.PixelHeight!=height)
+                    _localPreviewBitmap=new WriteableBitmap(width,height,96,96,PixelFormats.Bgra32,null);
+                _localPreviewBitmap.WritePixels(new Int32Rect(0,0,width,height),pixels,checked(width*4),0);
+                if(!ReferenceEquals(Frame,_localPreviewBitmap)) Frame=_localPreviewBitmap;
+            }
+            finally { Interlocked.Exchange(ref _localPreviewPending,0); }
+        });
     }
     private void StartDecoder() {
         StopDecoder();
@@ -269,15 +294,15 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         var decoderVersion=_decoderVersion;
         _decoderCancellation=CancellationTokenSource.CreateLinkedTokenSource(_sessionCancellation!.Token);
         _decoder=new H264Decoder(); _decoder.Error+=message=>{ if(decoderVersion==_decoderVersion) ReportError(message,version); };
-        _decoder.Frame+=pixels=>{ lock(this) { if (_uiFramePending) return; _uiFramePending=true; }
-            _dispatcher.BeginInvoke(()=>{ try { if(version!=_sessionVersion || decoderVersion!=_decoderVersion) return; var image=BitmapSource.Create(1280,720,96,96,PixelFormats.Bgra32,null,pixels,1280*4); image.Freeze(); Frame=image; } finally {lock(this) _uiFramePending=false;} }); };
+        _decoder.Frame+=pixels=>{ lock(this) { if (_uiFramePending || IsSharingLocal) return; _uiFramePending=true; }
+            _dispatcher.BeginInvoke(()=>{ try { if(version!=_sessionVersion || decoderVersion!=_decoderVersion || IsSharingLocal) return; var image=BitmapSource.Create(1280,720,96,96,PixelFormats.Bgra32,null,pixels,1280*4); image.Freeze(); Frame=image; } finally {lock(this) _uiFramePending=false;} }); };
         var decoder=_decoder; var token=_decoderCancellation.Token;
         _=Task.Run(async()=>{try {await decoder.RunAsync(token);} catch(Exception ex){if(!token.IsCancellationRequested) ReportError(ex.Message,version);} });
     }
     private void StopDecoder() { _decoderVersion++; _decoderCancellation?.Cancel(); _decoder?.Dispose(); _decoder=null; _decoderCancellation?.Dispose(); _decoderCancellation=null; }
     private void ReportError(string text, int version) { if(version!=_sessionVersion) return; try { var dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Glimpse"); Directory.CreateDirectory(dir); File.AppendAllText(Path.Combine(dir,"errors.log"),$"{DateTimeOffset.Now:O} {text}{Environment.NewLine}"); } catch { } OnUi(()=>{ if(version==_sessionVersion) Status="Ocorreu um erro. Verifique o registro do aplicativo."; }); }
     private void OnUi(Action action) { if (_dispatcher.CheckAccess()) action(); else _dispatcher.BeginInvoke(action); }
-    private void StopCapture() { _captureCancellation?.Cancel(); _capture?.Dispose(); _encoder?.Dispose(); _capture=null; _encoder=null; _captureCancellation?.Dispose(); _captureCancellation=null; }
+    private void StopCapture() { bool local=IsSharingLocal; IsSharingLocal=false; _localPreviewBitmap=null; if(local) Frame=null; _captureCancellation?.Cancel(); _capture?.Dispose(); _encoder?.Dispose(); _capture=null; _encoder=null; _captureCancellation?.Dispose(); _captureCancellation=null; }
     private void Reset() { _sessionVersion++; IsInRoom=false; _nativeConnection?.Dispose(); _nativeConnection=null; _nativeHub?.Dispose(); _nativeHub=null; _nativeHost?.Dispose(); _nativeHost=null; _routerMapping?.Dispose(); _routerMapping=null; _internetRoom?.Dispose(); _internetRoom=null; _roomHost?.Dispose(); _roomHost=null; StopCapture(); _sessionCancellation?.Cancel(); StopDecoder(); _peer?.Dispose(); _peer=null; _sessionCancellation?.Dispose(); _sessionCancellation=null; Frame=null; LocalText=""; _participantCount=0; Notify(nameof(ParticipantsText)); Notify(nameof(CanConfigureRoom)); }
     public void Dispose()=>Reset();
     private void Set<T>(ref T field,T value,[CallerMemberName]string? name=null) { if (!EqualityComparer<T>.Default.Equals(field,value)) {field=value;Notify(name);} }

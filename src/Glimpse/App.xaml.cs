@@ -14,6 +14,7 @@ public partial class App : Application
                 if(viewModel.IsInRoom || viewModel.RoomControlsVisibility!=Visibility.Collapsed) throw new InvalidOperationException("Os controles da sala apareceram antes da entrada.");
                 new Views.RoomSetupDialog(true,viewModel).Close();
                 new Views.RoomSetupDialog(false,viewModel).Close();
+                new Views.ShareSourceDialog().Close();
                 window.Close();
                 if(!System.IO.File.Exists(System.IO.Path.Combine(AppContext.BaseDirectory,"ffmpeg.exe"))) throw new System.IO.FileNotFoundException("O componente de video nao foi instalado.");
                 Shutdown(0);

@@ -4,6 +4,8 @@ Este é o modo padrão do Glimpse: **Hospedar no próprio PC**. Não usa Tailsca
 
 A tela inicial mostra **Hospedar sala** e **Entrar na sala de um amigo**. Cada opção abre um pop-up com os campos correspondentes. Os controles de compartilhar, parar e sair só aparecem depois de criar a sala ou concluir a entrada; ao sair, a tela volta às duas opções iniciais. O anfitrião pode abrir novamente o convite por **Ver convite da sala**.
 
+Ao clicar em **Compartilhar tela**, um pop-up pergunta entre **Uma janela específica** e **Tela inteira**. Em seguida, confirme a fonte no seletor do Windows. Essas opções não ficam mais na lateral. Enquanto você apresenta, a área central mostra sua própria prévia, identificada como **SUA PRÉVIA**. A prévia usa os quadros BGRA já capturados, sem disputar o canal do codificador ou decodificar o próprio vídeo. Um bitmap é reutilizado e há apenas uma atualização pendente na interface. Ao parar, trocar de fonte ou perder a apresentação, quadros pendentes da captura antiga são descartados. Cancelar a escolha de uma nova fonte preserva um compartilhamento que já estava ativo.
+
 ## Pessoas e apresentação
 
 A sala aceita até **8 pessoas: anfitrião + 7 convidados**. Todos usam o mesmo convite `GLN-...`. A saída de um convidado libera a vaga e mantém a sala disponível para outras entradas. A saída do anfitrião encerra a sala para todos.

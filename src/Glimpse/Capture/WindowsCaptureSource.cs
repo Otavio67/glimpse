@@ -33,6 +33,8 @@ public sealed class WindowsCaptureSource : IDisposable
     public int Width => _width;
     public int Height => _height;
     public event Action<string>? Error;
+    // The same immutable BGRA buffer goes to preview and encoder; the preview never reads the encoder channel.
+    public event Action<byte[],int,int>? PreviewFrame;
 
     public async Task<bool> PickAsync(IntPtr owner, int fps)
     {
@@ -69,7 +71,7 @@ public sealed class WindowsCaptureSource : IDisposable
             using var texture = new Texture2D(raw);
             _d3d.ImmediateContext.CopyResource(texture, _staging);
             var mapped = _d3d.ImmediateContext.MapSubresource(_staging, 0, MapMode.Read, MapFlags.None);
-            try { var pixels = new byte[checked(_width * _height * 4)]; for (int y = 0; y < _height; y++) Marshal.Copy(IntPtr.Add(mapped.DataPointer, y * mapped.RowPitch), pixels, y * _width * 4, _width * 4); _frames.Writer.TryWrite(pixels); }
+            try { var pixels = new byte[checked(_width * _height * 4)]; for (int y = 0; y < _height; y++) Marshal.Copy(IntPtr.Add(mapped.DataPointer, y * mapped.RowPitch), pixels, y * _width * 4, _width * 4); PreviewFrame?.Invoke(pixels,_width,_height); _frames.Writer.TryWrite(pixels); }
             finally { _d3d.ImmediateContext.UnmapSubresource(_staging, 0); }
         }
         catch (Exception ex) { Error?.Invoke(ex.Message); _frames.Writer.TryComplete(ex); }

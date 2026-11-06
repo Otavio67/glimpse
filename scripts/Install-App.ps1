@@ -55,7 +55,8 @@ try {
             $shortcut.TargetPath = $launcher; $shortcut.WorkingDirectory = $InstallRoot; $shortcut.IconLocation = (Join-Path $version 'Glimpse.exe') + ',0'; $shortcut.Save()
         }
     }
-    [ordered]@{ Version='0.2.0-preview'; AppPath=(Join-Path $version 'Glimpse.exe'); InstalledAt=[DateTimeOffset]::Now.ToString('O') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $InstallRoot 'installation.json') -Encoding UTF8
+    $packageVersion=(Get-Content -LiteralPath (Join-Path $package 'app-files.json') -Raw | ConvertFrom-Json).Version
+    [ordered]@{ Version=$packageVersion; AppPath=(Join-Path $version 'Glimpse.exe'); InstalledAt=[DateTimeOffset]::Now.ToString('O') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $InstallRoot 'installation.json') -Encoding UTF8
     Write-Host "Glimpse instalado em: $InstallRoot"
     if (-not $NoLaunch) { Start-Process -FilePath (Join-Path $version 'Glimpse.exe') -WorkingDirectory $version -WindowStyle Normal }
 }

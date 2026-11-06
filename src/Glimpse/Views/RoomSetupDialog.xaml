@@ -1,0 +1,41 @@
+<Window x:Class="Glimpse.Views.RoomSetupDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Sala Glimpse" Width="560" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="#171C2A" Foreground="#EEF1FA" FontFamily="Segoe UI">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="26">
+      <TextBlock x:Name="Heading" FontSize="22" FontWeight="SemiBold"/>
+      <TextBlock x:Name="Description" TextWrapping="Wrap" Foreground="#A8B2C5" Margin="0,8,0,22" LineHeight="20"/>
+      <StackPanel x:Name="HostPanel">
+        <StackPanel IsEnabled="{Binding CanConfigureRoom}" Visibility="{Binding RoomEntryVisibility}">
+          <CheckBox Content="Hospedar no próprio PC" IsChecked="{Binding NativeMode}" Foreground="#CFD9E6" Margin="0,0,0,12"/>
+          <Expander Header="Configurações da conexão" Foreground="#CFD9E6">
+            <StackPanel Margin="0,12,0,12">
+              <TextBlock Text="SEU IPv4 PÚBLICO (OPCIONAL)" FontSize="10" Foreground="#A8B2C5" Margin="0,0,0,6"/>
+              <TextBox Text="{Binding HostAddress, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="IPv4 público do anfitrião"/>
+              <TextBlock Text="PORTA TCP" FontSize="10" Foreground="#A8B2C5" Margin="0,12,0,6"/>
+              <TextBox Text="{Binding HostPort, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Porta da sala"/>
+              <CheckBox Content="Tentar abrir a porta no roteador automaticamente" IsChecked="{Binding AutoMapPort}" Foreground="#CFD9E6" Margin="0,12,0,0"/>
+            </StackPanel>
+          </Expander>
+          <Button Content="Criar sala" Command="{Binding CreateRoomCommand}" Background="#A999FF" Foreground="#1C1738" HorizontalAlignment="Left" Margin="0,18,0,0" AutomationProperties.Name="Criar sala"/>
+        </StackPanel>
+        <StackPanel Visibility="{Binding InvitationVisibility}">
+          <TextBlock Text="CONVITE DA SUA SALA" FontSize="10" Foreground="#A8B2C5" Margin="0,0,0,7"/>
+          <TextBox Text="{Binding LocalText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MinHeight="65" MaxHeight="130" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Código da sua sala"/>
+          <Button Content="Copiar convite" Command="{Binding CopyCommand}" HorizontalAlignment="Left" Margin="0,12,0,0"/>
+          <TextBlock Text="{Binding NetworkDetails}" TextWrapping="Wrap" Foreground="#A8B2C5" FontSize="12" LineHeight="19" Margin="0,14,0,0"/>
+        </StackPanel>
+      </StackPanel>
+      <StackPanel x:Name="JoinPanel">
+        <TextBlock Text="CONVITE DA SALA DO SEU AMIGO" FontSize="10" Foreground="#A8B2C5" Margin="0,0,0,7"/>
+        <TextBox x:Name="InviteInput" Text="{Binding RemoteText, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" MinHeight="80" MaxHeight="160" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Digite o código da sala"/>
+        <Button Content="Entrar na sala" Command="{Binding JoinRoomCommand}" Background="#A999FF" Foreground="#1C1738" HorizontalAlignment="Left" Margin="0,16,0,0" AutomationProperties.Name="Entrar na sala"/>
+      </StackPanel>
+      <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Foreground="#B9C5D9" Margin="0,20,0,0" FontSize="12" LineHeight="19" AutomationProperties.Name="Estado da conexão"/>
+      <Button x:Name="CloseButton" Content="Voltar" Click="CloseDialog" HorizontalAlignment="Right" Margin="0,22,0,0" IsCancel="True"/>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

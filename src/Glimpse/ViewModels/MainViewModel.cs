@@ -15,6 +15,7 @@ namespace Glimpse.ViewModels;
 public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly Func<IntPtr> _owner;
+    private readonly Action<bool>? _openRoomDialog;
     private readonly System.Windows.Threading.Dispatcher _dispatcher = Application.Current.Dispatcher;
     private LocalPeer? _peer;
     private DirectRoomHost? _roomHost;
@@ -37,9 +38,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private string _hostAddress="", _hostPort="45873", _networkDetails="Seu PC hospeda a sala. Para receber pela internet, ele precisa estar acessível por uma porta TCP.";
     private string _signalingServer=RoomServerSettings.Load();
     private ImageSource? _frame;
+    private bool _isInRoom;
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Status { get => _status; private set => Set(ref _status,value); }
-    public string LocalText { get => _local; private set => Set(ref _local,value); }
+    public string LocalText { get => _local; private set { Set(ref _local,value); Notify(nameof(InvitationVisibility)); } }
     public string RemoteText { get => _remote; set => Set(ref _remote,value); }
     public bool UseInternetRooms { get=>_useInternetRooms; set { Set(ref _useInternetRooms,value); Notify(nameof(RoomTitle)); Notify(nameof(ConnectionLabel)); Notify(nameof(RoomHint)); } }
     public string SignalingServer { get=>_signalingServer; set=>Set(ref _signalingServer,value); }
@@ -49,13 +51,20 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public string HostPort { get=>_hostPort; set=>Set(ref _hostPort,value); }
     public string NetworkDetails { get=>_networkDetails; private set=>Set(ref _networkDetails,value); }
     public bool CanConfigureRoom => _sessionCancellation is null;
-    public string ParticipantsText => _participantCount==0 ? "Nenhuma sala conectada" : $"{_participantCount} de 8 pessoas na sala";
+    public bool IsInRoom { get=>_isInRoom; private set { Set(ref _isInRoom,value); Notify(nameof(RoomControlsVisibility)); Notify(nameof(RoomEntryVisibility)); Notify(nameof(ParticipantsText)); Notify(nameof(WaitingMessage)); } }
+    public Visibility RoomControlsVisibility => IsInRoom ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RoomEntryVisibility => IsInRoom ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility InvitationVisibility => string.IsNullOrEmpty(LocalText) ? Visibility.Collapsed : Visibility.Visible;
+    public string ParticipantsText => _participantCount==0 ? (IsInRoom ? "Sala conectada" : "Nenhuma sala conectada") : $"{_participantCount} de 8 pessoas na sala";
+    public string WaitingMessage => IsInRoom ? "Compartilhe sua tela ou aguarde uma apresentação." : "Hospede uma sala ou entre na sala de um amigo.";
     public string RoomTitle => NativeMode ? "Sala direta" : UseInternetRooms ? "Sala pela internet" : "Sala local";
     public string ConnectionLabel => NativeMode ? "↗   Conexão direta" : UseInternetRooms ? "↗   Internet" : "↗   Rede local";
     public string RoomHint => NativeMode ? "Até 8 pessoas. Qualquer participante pode compartilhar a tela, sem pedir permissão. Uma nova apresentação substitui a atual. O anfitrião mantém o PC ligado." : "Duas pessoas na mesma rede local.";
     public ImageSource? Frame { get => _frame; private set { Set(ref _frame,value); Notify(nameof(WaitingVisibility)); } }
     public Visibility WaitingVisibility => Frame is null ? Visibility.Visible : Visibility.Collapsed;
     public ICommand CreateRoomCommand { get; }
+    public ICommand OpenHostRoomCommand { get; }
+    public ICommand OpenJoinRoomCommand { get; }
     public ICommand JoinRoomCommand { get; }
     public ICommand CreateOfferCommand { get; }
     public ICommand CreateAnswerCommand { get; }
@@ -64,8 +73,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ShareCommand { get; }
     public ICommand StopCommand { get; }
     public ICommand DisconnectCommand { get; }
-    public MainViewModel(Func<IntPtr> owner) {
+    public MainViewModel(Func<IntPtr> owner,Action<bool>? openRoomDialog=null) {
         _owner=owner;
+        _openRoomDialog=openRoomDialog;
+        OpenHostRoomCommand=new AsyncCommand(()=>{ _openRoomDialog?.Invoke(true); return Task.CompletedTask; });
+        OpenJoinRoomCommand=new AsyncCommand(()=>{ _openRoomDialog?.Invoke(false); return Task.CompletedTask; });
         CreateRoomCommand=new AsyncCommand(async()=>{
             if(NativeMode) { await CreateNativeRoomAsync(); return; }
             if (UseInternetRooms) { await OpenInternetRoomAsync(null); return; }
@@ -75,6 +87,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 var version=_sessionVersion;
                 _roomHost.Error += message => OnUi(()=>{ if (version==_sessionVersion) { Reset(); Status=message; } });
                 LocalText=_roomHost.Code; Status="Sala criada. Aguardando seu amigo na mesma rede.";
+                IsInRoom=true;
                 _= _roomHost.WaitForGuestAsync(_peer!);
             }
             catch { Reset(); throw; }
@@ -102,6 +115,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         StopCommand=new AsyncCommand(()=>{ StopCapture(); _nativeHub?.StopHostSharing(); _nativeConnection?.NotifySharingStopped(); Status=Strings.Stopped; return Task.CompletedTask; });
         DisconnectCommand=new AsyncCommand(()=>{ Reset(); Status=Strings.Disconnected; return Task.CompletedTask; });
     }
+    public void CancelRoomSetup() { if(!IsInRoom) { Reset(); Status="Pronto para começar"; } }
     private async Task CreateNativeRoomAsync() {
         if(!int.TryParse(HostPort,out var port) || port is <1024 or >65535) throw new InvalidOperationException("Escolha uma porta entre 1024 e 65535.");
         IPAddress? advertised=null;
@@ -134,6 +148,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             _nativeHub.PresentationRevoked+=()=>OnUi(()=>{ if(version==_sessionVersion) { StopCapture(); Status="Outro participante assumiu a apresentação."; } });
             _nativeHub.ParticipantCountChanged+=count=>OnUi(()=>{ if(version==_sessionVersion) { _participantCount=count; Notify(nameof(ParticipantsText)); } });
             _participantCount=1; Notify(nameof(ParticipantsText)); StartDecoder();
+            IsInRoom=true;
             _=AcceptNativeAsync(_nativeHub,version,token);
         }
         catch(Exception) when(version!=_sessionVersion) { }
@@ -168,6 +183,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         connection.ParticipantCountChanged+=count=>OnUi(()=>{ if(version==_sessionVersion) { _participantCount=count; Notify(nameof(ParticipantsText)); } });
         connection.Closed+=message=>OnUi(()=>{ if(version==_sessionVersion) { Reset(); Status=message; } });
         Status="Conectado diretamente ao outro PC";
+        IsInRoom=true;
         _=connection.RunAsync();
     }
     private void ResetNativePlayback(int version) {
@@ -189,6 +205,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             CreatePeer(_sender,session.Ticket.IceServers); StartDecoder();
             session.Closed+=message=>OnUi(()=>{ if(version==_sessionVersion) { Reset(); Status=message; } });
             LocalText=_sender ? session.Ticket.Code : "";
+            if(_sender) IsInRoom=true;
             Status=_sender ? "Sala criada. Envie o código ao seu amigo." : "Conectando à sala pela internet...";
             _=session.RunAsync(_peer!);
         }
@@ -205,6 +222,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _peer.StateChanged += state => OnUi(()=>{
             if (version!=_sessionVersion) return;
             var connectionVersion=++_connectionVersion;
+            if(state=="connected") IsInRoom=true;
             if (state is "failed" or "closed") {
                 Reset(); Status="A conexão foi encerrada. Crie uma nova sala para conectar novamente."; return;
             }
@@ -260,7 +278,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private void ReportError(string text, int version) { if(version!=_sessionVersion) return; try { var dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Glimpse"); Directory.CreateDirectory(dir); File.AppendAllText(Path.Combine(dir,"errors.log"),$"{DateTimeOffset.Now:O} {text}{Environment.NewLine}"); } catch { } OnUi(()=>{ if(version==_sessionVersion) Status="Ocorreu um erro. Verifique o registro do aplicativo."; }); }
     private void OnUi(Action action) { if (_dispatcher.CheckAccess()) action(); else _dispatcher.BeginInvoke(action); }
     private void StopCapture() { _captureCancellation?.Cancel(); _capture?.Dispose(); _encoder?.Dispose(); _capture=null; _encoder=null; _captureCancellation?.Dispose(); _captureCancellation=null; }
-    private void Reset() { _sessionVersion++; _nativeConnection?.Dispose(); _nativeConnection=null; _nativeHub?.Dispose(); _nativeHub=null; _nativeHost?.Dispose(); _nativeHost=null; _routerMapping?.Dispose(); _routerMapping=null; _internetRoom?.Dispose(); _internetRoom=null; _roomHost?.Dispose(); _roomHost=null; StopCapture(); _sessionCancellation?.Cancel(); StopDecoder(); _peer?.Dispose(); _peer=null; _sessionCancellation?.Dispose(); _sessionCancellation=null; Frame=null; LocalText=""; _participantCount=0; Notify(nameof(ParticipantsText)); Notify(nameof(CanConfigureRoom)); }
+    private void Reset() { _sessionVersion++; IsInRoom=false; _nativeConnection?.Dispose(); _nativeConnection=null; _nativeHub?.Dispose(); _nativeHub=null; _nativeHost?.Dispose(); _nativeHost=null; _routerMapping?.Dispose(); _routerMapping=null; _internetRoom?.Dispose(); _internetRoom=null; _roomHost?.Dispose(); _roomHost=null; StopCapture(); _sessionCancellation?.Cancel(); StopDecoder(); _peer?.Dispose(); _peer=null; _sessionCancellation?.Dispose(); _sessionCancellation=null; Frame=null; LocalText=""; _participantCount=0; Notify(nameof(ParticipantsText)); Notify(nameof(CanConfigureRoom)); }
     public void Dispose()=>Reset();
     private void Set<T>(ref T field,T value,[CallerMemberName]string? name=null) { if (!EqualityComparer<T>.Default.Equals(field,value)) {field=value;Notify(name);} }
     private void Notify([CallerMemberName]string? name=null)=>PropertyChanged?.Invoke(this,new PropertyChangedEventArgs(name));

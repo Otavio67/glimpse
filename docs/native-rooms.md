@@ -2,6 +2,8 @@
 
 Este é o modo padrão do Glimpse: **Hospedar no próprio PC**. Não usa Tailscale, serviço de salas hospedado, TURN, STUN ou conta em provedor. O próprio aplicativo recebe os convidados e distribui o vídeo. Os projetos de sinalização central anteriores permanecem no repositório como alternativa de desenvolvimento, sem serviço contratado ou publicado.
 
+A tela inicial mostra **Hospedar sala** e **Entrar na sala de um amigo**. Cada opção abre um pop-up com os campos correspondentes. Os controles de compartilhar, parar e sair só aparecem depois de criar a sala ou concluir a entrada; ao sair, a tela volta às duas opções iniciais. O anfitrião pode abrir novamente o convite por **Ver convite da sala**.
+
 ## Pessoas e apresentação
 
 A sala aceita até **8 pessoas: anfitrião + 7 convidados**. Todos usam o mesmo convite `GLN-...`. A saída de um convidado libera a vaga e mantém a sala disponível para outras entradas. A saída do anfitrião encerra a sala para todos.

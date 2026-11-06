@@ -30,7 +30,8 @@ foreach ($library in $assets.libraries.PSObject.Properties) {
 }
 $app = Join-Path $bundle 'app'
 $files = @(Get-ChildItem -LiteralPath $app -File -Recurse | ForEach-Object { [ordered]@{ Path=$_.FullName.Substring($app.Length+1); Sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } })
-[ordered]@{ Version='0.2.0-preview'; Files=$files } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $bundle 'app-files.json') -Encoding UTF8
+$projectVersion=([xml](Get-Content -LiteralPath (Join-Path $root 'src\Glimpse\Glimpse.csproj') -Raw)).Project.PropertyGroup.Version
+[ordered]@{ Version=$projectVersion; Files=$files } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $bundle 'app-files.json') -Encoding UTF8
 . (Join-Path $PSScriptRoot 'Install-Dependencies.ps1')
 Test-GlimpsePayload -PackageRoot $bundle
 if (-not $NoZip) {

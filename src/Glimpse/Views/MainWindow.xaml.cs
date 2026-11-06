@@ -16,8 +16,12 @@ public partial class MainWindow : Window
         Height = bounds.Height;
         Left = bounds.Left;
         Top = bounds.Top;
-        _vm = new MainViewModel(() => new WindowInteropHelper(this).Handle);
+        _vm = new MainViewModel(() => new WindowInteropHelper(this).Handle,OpenRoomDialog);
         DataContext = _vm;
         Closed += (_, _) => _vm.Dispose();
+    }
+    private void OpenRoomDialog(bool host) {
+        var dialog=new RoomSetupDialog(host,_vm) { Owner=this };
+        dialog.ShowDialog();
     }
 }

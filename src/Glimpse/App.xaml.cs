@@ -9,7 +9,12 @@ public partial class App : Application
             ShutdownMode=ShutdownMode.OnExplicitShutdown;
             try {
                 // Load the actual WPF view and bundled libraries without showing a window or capturing a screen.
-                var window=new Views.MainWindow(); window.Close();
+                var window=new Views.MainWindow();
+                var viewModel=(ViewModels.MainViewModel)window.DataContext;
+                if(viewModel.IsInRoom || viewModel.RoomControlsVisibility!=Visibility.Collapsed) throw new InvalidOperationException("Os controles da sala apareceram antes da entrada.");
+                new Views.RoomSetupDialog(true,viewModel).Close();
+                new Views.RoomSetupDialog(false,viewModel).Close();
+                window.Close();
                 if(!System.IO.File.Exists(System.IO.Path.Combine(AppContext.BaseDirectory,"ffmpeg.exe"))) throw new System.IO.FileNotFoundException("O componente de video nao foi instalado.");
                 Shutdown(0);
             }

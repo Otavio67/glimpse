@@ -10,6 +10,7 @@ using Glimpse.Encoding;
 using Glimpse.Networking;
 using Glimpse.Resources;
 using Glimpse.RoomProtocol;
+using Glimpse.Profiles;
 using System.Net;
 namespace Glimpse.ViewModels;
 public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
@@ -43,6 +44,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private bool _isSharingLocal;
     private int _localPreviewPending;
     private WriteableBitmap? _localPreviewBitmap;
+    private string _displayName="Você";
+    private ImageSource? _avatarImage;
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Status { get => _status; private set => Set(ref _status,value); }
     public string LocalText { get => _local; private set { Set(ref _local,value); Notify(nameof(InvitationVisibility)); } }
@@ -61,6 +64,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public Visibility InvitationVisibility => string.IsNullOrEmpty(LocalText) ? Visibility.Collapsed : Visibility.Visible;
     public bool IsSharingLocal { get=>_isSharingLocal; private set { Set(ref _isSharingLocal,value); Notify(nameof(ShareAreaLabel)); } }
     public string ShareAreaLabel => IsSharingLocal ? "◉  SUA PRÉVIA" : "◉  COMPARTILHAMENTO";
+    public string DisplayName { get=>_displayName; private set=>Set(ref _displayName,value); }
+    public ImageSource? AvatarImage { get=>_avatarImage; private set=>Set(ref _avatarImage,value); }
+    public ICommand EditProfileCommand { get; }
     public string ParticipantsText => _participantCount==0 ? (IsInRoom ? "Sala conectada" : "Nenhuma sala conectada") : $"{_participantCount} de 8 pessoas na sala";
     public string WaitingMessage => IsInRoom ? "Compartilhe sua tela ou aguarde uma apresentação." : "Hospede uma sala ou entre na sala de um amigo.";
     public string RoomTitle => NativeMode ? "Sala direta" : UseInternetRooms ? "Sala pela internet" : "Sala local";
@@ -79,10 +85,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ShareCommand { get; }
     public ICommand StopCommand { get; }
     public ICommand DisconnectCommand { get; }
-    public MainViewModel(Func<IntPtr> owner,Action<bool>? openRoomDialog=null,Func<string?>? chooseShareSource=null) {
+    public MainViewModel(Func<IntPtr> owner,Action<bool>? openRoomDialog=null,Func<string?>? chooseShareSource=null,Action? editProfile=null) {
         _owner=owner;
         _openRoomDialog=openRoomDialog;
         _chooseShareSource=chooseShareSource;
+        EditProfileCommand=new AsyncCommand(()=>{ editProfile?.Invoke(); return Task.CompletedTask; });
         OpenHostRoomCommand=new AsyncCommand(()=>{ _openRoomDialog?.Invoke(true); return Task.CompletedTask; });
         OpenJoinRoomCommand=new AsyncCommand(()=>{ _openRoomDialog?.Invoke(false); return Task.CompletedTask; });
         CreateRoomCommand=new AsyncCommand(async()=>{
@@ -122,6 +129,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         StopCommand=new AsyncCommand(()=>{ StopCapture(); _nativeHub?.StopHostSharing(); _nativeConnection?.NotifySharingStopped(); Status=Strings.Stopped; return Task.CompletedTask; });
         DisconnectCommand=new AsyncCommand(()=>{ Reset(); Status=Strings.Disconnected; return Task.CompletedTask; });
     }
+    public void ApplyProfile(UserProfile profile,UserProfileStore store) { DisplayName=profile.DisplayName; AvatarImage=store.AvatarImage(profile); }
     public void CancelRoomSetup() { if(!IsInRoom) { Reset(); Status="Pronto para começar"; } }
     private async Task CreateNativeRoomAsync() {
         if(!int.TryParse(HostPort,out var port) || port is <1024 or >65535) throw new InvalidOperationException("Escolha uma porta entre 1024 e 65535.");

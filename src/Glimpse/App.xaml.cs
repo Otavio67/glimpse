@@ -15,6 +15,7 @@ public partial class App : Application
                 new Views.RoomSetupDialog(true,viewModel).Close();
                 new Views.RoomSetupDialog(false,viewModel).Close();
                 new Views.ShareSourceDialog().Close();
+                new Views.ProfileSetupDialog(new Profiles.UserProfileStore()).Close();
                 window.Close();
                 if(!System.IO.File.Exists(System.IO.Path.Combine(AppContext.BaseDirectory,"ffmpeg.exe"))) throw new System.IO.FileNotFoundException("O componente de video nao foi instalado.");
                 Shutdown(0);
@@ -27,6 +28,17 @@ public partial class App : Application
         try { CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(string.IsNullOrWhiteSpace(language) ? "en-US" : language); }
         catch (CultureNotFoundException) { CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("pt-BR"); }
         base.OnStartup(e);
-        new Views.MainWindow().Show();
+        ShutdownMode=ShutdownMode.OnExplicitShutdown;
+        var store=new Profiles.UserProfileStore();
+        var profile=store.Load();
+        if(profile is null) {
+            var setup=new Views.ProfileSetupDialog(store);
+            if(setup.ShowDialog()!=true || setup.Profile is null) { Shutdown(); return; }
+            profile=setup.Profile;
+        }
+        var main=new Views.MainWindow(profile,store);
+        MainWindow=main;
+        ShutdownMode=ShutdownMode.OnLastWindowClose;
+        main.Show();
     }
 }

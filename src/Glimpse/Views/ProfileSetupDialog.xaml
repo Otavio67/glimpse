@@ -1,0 +1,52 @@
+<Window x:Class="Glimpse.Views.ProfileSetupDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Seu perfil no Glimpse" Width="590" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen" ShowInTaskbar="False"
+        Background="#171C2A" Foreground="#EEF1FA" FontFamily="Segoe UI">
+  <Window.Resources>
+    <Style x:Key="AvatarChoice" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="#EEF1FA"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+        <Border x:Name="Tile" Background="#202638" BorderBrush="#343E54" BorderThickness="2" CornerRadius="14" Padding="8,10">
+          <ContentPresenter HorizontalAlignment="Center"/>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsChecked" Value="True"><Setter TargetName="Tile" Property="BorderBrush" Value="#B8A8FF"/><Setter TargetName="Tile" Property="Background" Value="#35304F"/></Trigger>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Tile" Property="BorderBrush" Value="#F1EBFF"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+  </Window.Resources>
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="28">
+      <TextBlock x:Name="Heading" Text="Como você quer aparecer?" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap"/>
+      <TextBlock Text="Escolha seu nome e uma foto para deixar o Glimpse com a sua cara." Foreground="#A8B2C5" Margin="0,9,0,22" TextWrapping="Wrap" LineHeight="20"/>
+      <DockPanel Margin="0,0,0,23">
+        <Border Width="82" Height="82" CornerRadius="26" Margin="0,0,18,0">
+          <Border.Background><ImageBrush x:Name="SelectedPhoto" Stretch="UniformToFill"/></Border.Background>
+        </Border>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="SEU NOME" FontSize="10" FontWeight="Bold" Foreground="#A8B2C5" Margin="0,0,0,7"/>
+          <TextBox x:Name="NameInput" MinWidth="240" MaxLength="96" AutomationProperties.Name="Seu nome no Glimpse"/>
+          <TextBlock Text="Até 24 caracteres. Você pode mudar depois." Foreground="#8E9BB0" FontSize="11" Margin="0,6,0,0"/>
+        </StackPanel>
+      </DockPanel>
+      <TextBlock Text="ESCOLHA SEU ROBÔ" FontSize="10" FontWeight="Bold" Foreground="#A8B2C5" Margin="0,0,0,10"/>
+      <UniformGrid x:Name="AvatarGrid" Columns="4">
+        <RadioButton Style="{StaticResource AvatarChoice}" GroupName="Avatar" Tag="astronaut" Checked="ChooseAvatar" AutomationProperties.Name="Avatar Astro"><StackPanel><Image x:Name="AstroImage" Width="84" Height="84"/><TextBlock Text="Astro" HorizontalAlignment="Center" Margin="0,8,0,0"/></StackPanel></RadioButton>
+        <RadioButton Style="{StaticResource AvatarChoice}" GroupName="Avatar" Tag="glasses" Checked="ChooseAvatar" AutomationProperties.Name="Avatar Óculos"><StackPanel><Image x:Name="GlassesImage" Width="84" Height="84"/><TextBlock Text="Óculos" HorizontalAlignment="Center" Margin="0,8,0,0"/></StackPanel></RadioButton>
+        <RadioButton Style="{StaticResource AvatarChoice}" GroupName="Avatar" Tag="party" Checked="ChooseAvatar" AutomationProperties.Name="Avatar Festa"><StackPanel><Image x:Name="PartyImage" Width="84" Height="84"/><TextBlock Text="Festa" HorizontalAlignment="Center" Margin="0,8,0,0"/></StackPanel></RadioButton>
+        <RadioButton Style="{StaticResource AvatarChoice}" GroupName="Avatar" Tag="toaster" Checked="ChooseAvatar" AutomationProperties.Name="Avatar Torradinha"><StackPanel><Image x:Name="ToasterImage" Width="84" Height="84"/><TextBlock Text="Torradinha" HorizontalAlignment="Center" Margin="0,8,0,0"/></StackPanel></RadioButton>
+      </UniformGrid>
+      <Button Content="Escolher uma foto do computador" Click="ImportPhoto" HorizontalAlignment="Left" Margin="0,16,0,0" AutomationProperties.Name="Escolher uma foto do computador"/>
+      <TextBlock x:Name="ErrorMessage" Foreground="#FFB7BD" TextWrapping="Wrap" Margin="0,14,0,0"/>
+      <DockPanel Margin="0,12,0,0">
+        <Button x:Name="SaveButton" Content="Entrar no Glimpse" Click="SaveProfile" DockPanel.Dock="Right" HorizontalAlignment="Right" Background="#A999FF" Foreground="#1C1738" IsDefault="True" Margin="8,0,0,0"/>
+        <Button x:Name="CancelButton" Content="Sair" IsCancel="True" HorizontalAlignment="Left" Margin="0"/>
+      </DockPanel>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

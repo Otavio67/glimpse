@@ -4,6 +4,7 @@
 2. Extraia o ZIP inteiro para uma pasta. Não execute de dentro do ZIP.
 3. Dê dois cliques em **Instalar Glimpse.cmd**.
 4. Aguarde a verificação dos arquivos e o download do componente de vídeo. O instalador cria atalhos **Glimpse** na Área de Trabalho e no menu Iniciar.
+5. Na primeira abertura, escolha seu nome e uma foto. Você pode usar um dos quatro robôs ou importar uma foto do computador; nas próximas aberturas o perfil já estará salvo.
 
 Se o repositório estiver privado, o GitHub só permite baixar a versão às pessoas com acesso ao repositório.
 

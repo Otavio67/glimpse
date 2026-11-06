@@ -12,7 +12,9 @@ if (-not (Test-Path -LiteralPath $dotnet)) {
     Write-Host 'Downloading the .NET 10 SDK installer from Microsoft...'
     Invoke-WebRequest -UseBasicParsing 'https://dot.net/v1/dotnet-install.ps1' -OutFile $installer
     & $installer -Version '10.0.403' -InstallDir $dotnetDir -NoPath
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $dotnet)) { throw 'The .NET SDK installation failed.' }
+    # A PowerShell installer can leave a stale native-process LASTEXITCODE.
+    # Verify the executable here; the SDK version/runtime checks below validate it.
+    if (-not (Test-Path -LiteralPath $dotnet)) { throw 'The .NET SDK installation failed.' }
 }
 
 $ffmpeg = Join-Path $ffmpegDir 'bin\ffmpeg.exe'

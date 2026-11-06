@@ -10,6 +10,7 @@
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Glimpse.RoomProtocol\Glimpse.RoomProtocol.csproj" />
     <PackageReference Include="SIPSorcery" Version="10.0.17" />
     <PackageReference Include="SharpDX.Direct3D11" Version="4.2.0" />
   </ItemGroup>

@@ -1,6 +1,7 @@
 using System.Text;
 using SIPSorcery.Net;
 using SIPSorceryMedia.Abstractions;
+using IceServer = Glimpse.RoomProtocol.IceServer;
 namespace Glimpse.Networking;
 public sealed class LocalPeer : IDisposable
 {
@@ -8,9 +9,12 @@ public sealed class LocalPeer : IDisposable
     public event Action<byte[]>? VideoFrame;
     public event Action<string>? StateChanged;
     public bool IsConnected => _pc.connectionState == RTCPeerConnectionState.connected;
-    public LocalPeer(bool sender)
+    public LocalPeer(bool sender, IEnumerable<IceServer>? iceServers = null, bool relayOnly = false)
     {
-        _pc = new RTCPeerConnection(new RTCConfiguration());
+        _pc = new RTCPeerConnection(new RTCConfiguration {
+            iceServers = iceServers?.Select(server => new RTCIceServer { urls = server.Url, username = server.Username, credential = server.Credential }).ToList(),
+            iceTransportPolicy = relayOnly ? RTCIceTransportPolicy.relay : RTCIceTransportPolicy.all
+        });
         var format = new VideoFormat(VideoCodecsEnum.H264, 102, 90000, "packetization-mode=1;profile-level-id=42e01f;level-asymmetry-allowed=1");
         _pc.addTrack(new MediaStreamTrack(new List<VideoFormat> { format }, MediaStreamStatusEnum.SendRecv));
         _pc.OnVideoFrameReceived += (_, _, frame, _) => VideoFrame?.Invoke(frame);

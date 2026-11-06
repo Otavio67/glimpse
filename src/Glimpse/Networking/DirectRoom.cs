@@ -16,12 +16,16 @@ public sealed class DirectRoomHost : IDisposable
     private readonly X509Certificate2 _certificate;
     private readonly byte[] _secret = RandomNumberGenerator.GetBytes(32);
     private readonly CancellationTokenSource _cancel = new();
+    private readonly CancellationToken _lifetime;
+    private int _disposed;
     private TcpClient? _client;
     public string Code { get; }
     public event Action<string>? Error;
     public DirectRoomHost(IPAddress? address = null)
     {
+        _lifetime = _cancel.Token;
         address ??= GetLocalAddress();
+        if (address.AddressFamily != AddressFamily.InterNetwork) throw new ArgumentException("A sala local requer um endereço IPv4.", nameof(address));
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest("CN=Glimpse local", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
                 using var temporary = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddHours(12));
@@ -38,18 +42,32 @@ public sealed class DirectRoomHost : IDisposable
     }
     public async Task WaitForGuestAsync(LocalPeer peer)
     {
+        bool negotiating = false;
         try {
-            _client = await _listener.AcceptTcpClientAsync(_cancel.Token);
-            using var stream = new SslStream(_client.GetStream(), false);
-            await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = _certificate, EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13 }, _cancel.Token);
-            byte[] token = new byte[32]; await stream.ReadExactlyAsync(token, _cancel.Token);
-            if (!CryptographicOperations.FixedTimeEquals(token, _secret)) throw new InvalidDataException("Código de sala inválido.");
-            string offer = await Task.Run(peer.CreateOfferAsync, _cancel.Token);
-            await RoomWire.WriteAsync(stream, offer, _cancel.Token);
-            string answer = await RoomWire.ReadAsync(stream, _cancel.Token);
-            peer.AcceptAnswer(answer);
-        } catch(OperationCanceledException) when (_cancel.IsCancellationRequested) { }
-        catch(Exception) { if (!_cancel.IsCancellationRequested) Error?.Invoke("Não foi possível conectar à sala. Confira o código e a rede."); }
+            while (!_lifetime.IsCancellationRequested) {
+                _client = await _listener.AcceptTcpClientAsync(_lifetime);
+                using var client = _client;
+                using var attempt = CancellationTokenSource.CreateLinkedTokenSource(_lifetime);
+                attempt.CancelAfter(TimeSpan.FromSeconds(15));
+                using var stream = new SslStream(client.GetStream(), false);
+                try {
+                    await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = _certificate, EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13 }, attempt.Token);
+                    byte[] token = new byte[32]; await stream.ReadExactlyAsync(token, attempt.Token);
+                    if (!CryptographicOperations.FixedTimeEquals(token, _secret)) continue;
+                    negotiating = true;
+                    attempt.CancelAfter(TimeSpan.FromSeconds(30));
+                    string offer = await Task.Run(peer.CreateOfferAsync, attempt.Token).WaitAsync(attempt.Token);
+                    await RoomWire.WriteAsync(stream, offer, attempt.Token);
+                    string answer = await RoomWire.ReadAsync(stream, attempt.Token);
+                    peer.AcceptAnswer(answer);
+                    return;
+                }
+                // An unauthenticated or stalled client must not consume the room.
+                catch (Exception ex) when (!negotiating && !_lifetime.IsCancellationRequested &&
+                    ex is IOException or AuthenticationException or OperationCanceledException or SocketException) { }
+            }
+        } catch(Exception) when (_lifetime.IsCancellationRequested) { }
+        catch(Exception) { Error?.Invoke("A conexão com o convidado falhou. Crie uma nova sala e envie o novo código."); }
         finally { try { _listener.Stop(); } catch { } _client?.Dispose(); }
     }
     private static IPAddress GetLocalAddress() {
@@ -59,12 +77,13 @@ public sealed class DirectRoomHost : IDisposable
         }
         throw new InvalidOperationException("Não foi encontrado um endereço IPv4 de rede local.");
     }
-    public void Dispose() { _cancel.Cancel(); _listener.Stop(); _client?.Dispose(); _certificate.Dispose(); _cancel.Dispose(); }
+    public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) != 0) return; _cancel.Cancel(); _listener.Stop(); _client?.Dispose(); _certificate.Dispose(); _cancel.Dispose(); }
 }
 public static class DirectRoomGuest
 {
     public static async Task JoinAsync(string code, LocalPeer peer, CancellationToken token)
     {
+        code = code.Trim();
         if (code.Length > 256 || !code.StartsWith("GLM-", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Informe um código de sala válido.");
         byte[] data;
         try { string b64=code[4..].Trim().Replace('-','+').Replace('_','/'); b64=b64.PadRight((b64.Length+3)/4*4,'='); data=Convert.FromBase64String(b64); }
@@ -72,13 +91,21 @@ public static class DirectRoomGuest
         if(data.Length!=70) throw new InvalidDataException("O código de sala está incompleto ou inválido.");
         var ip=new IPAddress(data.AsSpan(0,4)); int port=BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(4,2)); if(port==0) throw new InvalidDataException("Porta inválida no código de sala.");
         byte[] pin=data.AsSpan(6,32).ToArray(), secret=data.AsSpan(38,32).ToArray();
-        using var tcp=new TcpClient(); await tcp.ConnectAsync(ip,port,token);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(40));
+        var attemptToken = timeout.Token;
+        try {
+        using var tcp=new TcpClient(); await tcp.ConnectAsync(ip,port,attemptToken);
         using var stream=new SslStream(tcp.GetStream(), false, (_, cert, _, _) => cert is not null && CryptographicOperations.FixedTimeEquals(SHA256.HashData(cert.GetRawCertData()), pin));
-        await stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost="Glimpse local", EnabledSslProtocols=SslProtocols.Tls12|SslProtocols.Tls13 },token);
-        await stream.WriteAsync(secret,token);
-        string offer=await RoomWire.ReadAsync(stream,token);
-        string answer=await Task.Run(()=>peer.AcceptOfferAsync(offer),token);
-        await RoomWire.WriteAsync(stream,answer,token);
+        await stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost="Glimpse local", EnabledSslProtocols=SslProtocols.Tls12|SslProtocols.Tls13 },attemptToken);
+        await stream.WriteAsync(secret,attemptToken);
+        string offer=await RoomWire.ReadAsync(stream,attemptToken);
+        string answer=await Task.Run(()=>peer.AcceptOfferAsync(offer),attemptToken).WaitAsync(attemptToken);
+        await RoomWire.WriteAsync(stream,answer,attemptToken);
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested) { throw new TimeoutException("A sala não respondeu a tempo. Confira se os dois computadores estão na mesma rede e se o firewall permite o Glimpse."); }
+        catch (SocketException ex) { throw new IOException("Não foi possível alcançar a sala. Confira se ela ainda está aberta e se os dois computadores estão na mesma rede.", ex); }
+        catch (AuthenticationException ex) { throw new IOException("Não foi possível confirmar a identidade da sala. Peça um novo código ao anfitrião.", ex); }
     }
 }
 internal static class RoomWire {

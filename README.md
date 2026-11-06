@@ -1,6 +1,14 @@
-# Glimpse — milestone 1: LAN preview
+# Glimpse — development preview
 
-A native Windows WPF/.NET 10 prototype for two-way sharing between two Glimpse instances. This is milestone 1, not the finished product. It uses the Windows picker, Windows.Graphics.Capture, H.264 via Media Foundation, and SIPSorcery WebRTC. A room code establishes a direct, encrypted connection to the host for exchanging SDP; there is no separate signaling server. The code contains the host LAN IP, port, certificate fingerprint, and secret.
+## Instalação no Windows
+
+Baixe **Glimpse-Windows-x64.zip** em [Releases](https://github.com/Otavio67/glimpse/releases), extraia todos os arquivos e dê dois cliques em **Instalar Glimpse.cmd**. O pacote inclui o aplicativo, bibliotecas e runtime .NET; o instalador baixa e verifica o componente de vídeo, instala para seu usuário e cria atalhos na Área de Trabalho e no menu Iniciar. Não é necessário instalar ferramentas de programação.
+
+Se baixar o código por **Code → Download ZIP**, execute o mesmo **Instalar Glimpse.cmd** depois de extrair. O instalador baixa também as ferramentas para compilar a aplicação automaticamente. Mais detalhes e requisitos em [instalação](docs/installation.md).
+
+A native Windows WPF/.NET 10 prototype for two-way sharing between two Glimpse instances. It uses the Windows picker, Windows.Graphics.Capture, H.264 via Media Foundation, and SIPSorcery WebRTC. This is a development preview, not the finished product. The original direct LAN mode exchanges SDP through an encrypted connection to the host; its `GLM-` code carries the host address, certificate fingerprint and secret.
+
+**The default is now native PC hosting:** the app creates a `GLN-...` invitation, accepts up to eight people, and sends video over pinned TLS/TCP without a hosted signaling service, STUN/TURN or VPN. Any participant may present; a new presentation replaces the current one. The app can attempt Windows UPnP router configuration or use a manually configured public IPv4/port. **Router mapping and connectivity between separate networks are not yet verified; CGNAT can prevent direct hosting.** See [native room setup and validation](docs/native-rooms.md). Uncheck **Hospedar no próprio PC** for the original two-person LAN/WebRTC mode below. The earlier central-service prototype remains documented [here](docs/internet-rooms.md) and is not deployed or selected by default.
 
 ## Status and boundaries
 
@@ -64,6 +72,18 @@ If Media Foundation reports a hardware H.264 MFT, the app requests FFmpeg's `h26
 
 A sala direta aceita um convidado; ambos podem transmitir, funciona em redes que permitem conexão direta entre os computadores e não possui servidor intermediário. O código é longo porque contém o endereço local e credenciais criptográficas. Ele não funciona automaticamente entre redes diferentes, especialmente com NAT ou firewalls. Um servidor público de sinalização e, em redes restritas, um servidor TURN ainda precisam ser configurados. A troca do código deve ser feita em um canal confiável; quem o possui pode tentar entrar na sala. O código atual é de uso único: crie outra sala se precisar conectar novamente.
 
+## Room connection regression checks
+
+The network-only regression runner requires .NET 10 but does not require FFmpeg, open the app, or capture a screen:
+
+```powershell
+dotnet run --project tests/Glimpse.Rooms/Glimpse.Rooms.csproj -c Release
+```
+
+It checks malformed codes, certificate pin mismatch, incorrect room secrets, a stalled TCP client followed by a valid guest using the same code, WebRTC establishment on loopback, and cancellation. Unauthenticated attempts are limited to 15 seconds and leave the room available. Once an authenticated guest begins negotiation, the room remains single-use; a failed negotiation requires a new room. Joining has a 40-second signaling limit, and the interface gives WebRTC 30 seconds per connection/recovery state before ending the session. Late connection and decoded-frame callbacks from a previous session are ignored.
+
+These checks do not validate connectivity between physical PCs or separate networks. Internet signaling, short codes, TURN relay, and automatic room rejoining remain unimplemented.
+
 ## Headless test with generated frames — no screen capture
 
 Set `GLIMPSE_FFMPEG` to the complete path of `ffmpeg.exe`, then run:
@@ -96,9 +116,9 @@ SharpDX uses the MIT license. FFmpeg licenses vary by build configuration, inclu
 ## Known limitations and next steps
 
 - Actual Windows Graphics Capture end-to-end and two-PC LAN use need hands-on validation; no user screen was used during development tests. The last received frame may remain visible after the other participant stops sharing.
-- Direct rooms currently accept one viewer and connect only where the host is reachable by its local IPv4 address. Internet-ready signaling, short server-side codes, multiple viewers, STUN/TURN settings, reconnect and adaptive bitrate are **not implemented**.
+- Native PC rooms accept seven guests and allow any participant to present. Real-router and different-network validation remains pending. The legacy LAN/WebRTC and central-service prototypes still accept only one guest. ICE restart/rejoining in those older modes and adaptive bitrate are **not implemented**.
 - Quality selection, 1080p/60, stats overlay, measurement/optimization of CPU and memory, GPU texture-to-encoder transfer, light theme, comprehensive accessibility/localization and settings are **not implemented**.
-- Protocol registration, single-instance link handling, a landing page, installer and portable distributable are **not implemented**.
+- Protocol registration, single-instance link handling and a landing page are **not implemented**. A per-user Windows installer and self-contained release ZIP are now provided; the first install downloads the pinned FFmpeg build.
 - No publicly deployed signaling server or relay is included yet; these are needed for convenient use between separate networks.
 - Prioritize capture correctness, predictable disposal, authenticated signaling, congestion handling, and performance profiling on multiple GPUs before calling this production-ready.
 

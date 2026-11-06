@@ -9,6 +9,8 @@ using Glimpse.Capture;
 using Glimpse.Encoding;
 using Glimpse.Networking;
 using Glimpse.Resources;
+using Glimpse.RoomProtocol;
+using System.Net;
 namespace Glimpse.ViewModels;
 public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 {
@@ -16,17 +18,41 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly System.Windows.Threading.Dispatcher _dispatcher = Application.Current.Dispatcher;
     private LocalPeer? _peer;
     private DirectRoomHost? _roomHost;
+    private InternetRoomSession? _internetRoom;
+    private NativeRoomHost? _nativeHost;
+    private NativeRoomHub? _nativeHub;
+    private NativeRoomConnection? _nativeConnection;
+    private RouterPortMapping? _routerMapping;
     private WindowsCaptureSource? _capture;
     private H264Encoder? _encoder;
     private H264Decoder? _decoder;
-    private CancellationTokenSource? _captureCancellation, _sessionCancellation;
+    private CancellationTokenSource? _captureCancellation, _sessionCancellation, _decoderCancellation;
     private bool _sender, _uiFramePending;
+    private int _sessionVersion;
+    private int _connectionVersion;
+    private int _decoderVersion, _participantCount;
     private string _status="Pronto para começar", _local="", _remote="";
+    private bool _useInternetRooms=false;
+    private bool _nativeMode=true, _autoMapPort=true;
+    private string _hostAddress="", _hostPort="45873", _networkDetails="Seu PC hospeda a sala. Para receber pela internet, ele precisa estar acessível por uma porta TCP.";
+    private string _signalingServer=RoomServerSettings.Load();
     private ImageSource? _frame;
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Status { get => _status; private set => Set(ref _status,value); }
     public string LocalText { get => _local; private set => Set(ref _local,value); }
     public string RemoteText { get => _remote; set => Set(ref _remote,value); }
+    public bool UseInternetRooms { get=>_useInternetRooms; set { Set(ref _useInternetRooms,value); Notify(nameof(RoomTitle)); Notify(nameof(ConnectionLabel)); Notify(nameof(RoomHint)); } }
+    public string SignalingServer { get=>_signalingServer; set=>Set(ref _signalingServer,value); }
+    public bool NativeMode { get=>_nativeMode; set { Set(ref _nativeMode,value); Notify(nameof(RoomTitle)); Notify(nameof(ConnectionLabel)); Notify(nameof(RoomHint)); } }
+    public bool AutoMapPort { get=>_autoMapPort; set=>Set(ref _autoMapPort,value); }
+    public string HostAddress { get=>_hostAddress; set=>Set(ref _hostAddress,value); }
+    public string HostPort { get=>_hostPort; set=>Set(ref _hostPort,value); }
+    public string NetworkDetails { get=>_networkDetails; private set=>Set(ref _networkDetails,value); }
+    public bool CanConfigureRoom => _sessionCancellation is null;
+    public string ParticipantsText => _participantCount==0 ? "Nenhuma sala conectada" : $"{_participantCount} de 8 pessoas na sala";
+    public string RoomTitle => NativeMode ? "Sala direta" : UseInternetRooms ? "Sala pela internet" : "Sala local";
+    public string ConnectionLabel => NativeMode ? "↗   Conexão direta" : UseInternetRooms ? "↗   Internet" : "↗   Rede local";
+    public string RoomHint => NativeMode ? "Até 8 pessoas. Qualquer participante pode compartilhar a tela, sem pedir permissão. Uma nova apresentação substitui a atual. O anfitrião mantém o PC ligado." : "Duas pessoas na mesma rede local.";
     public ImageSource? Frame { get => _frame; private set { Set(ref _frame,value); Notify(nameof(WaitingVisibility)); } }
     public Visibility WaitingVisibility => Frame is null ? Visibility.Visible : Visibility.Collapsed;
     public ICommand CreateRoomCommand { get; }
@@ -40,55 +66,201 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand DisconnectCommand { get; }
     public MainViewModel(Func<IntPtr> owner) {
         _owner=owner;
-        CreateRoomCommand=new AsyncCommand(()=>{
+        CreateRoomCommand=new AsyncCommand(async()=>{
+            if(NativeMode) { await CreateNativeRoomAsync(); return; }
+            if (UseInternetRooms) { await OpenInternetRoomAsync(null); return; }
             Reset(); _sender=true; CreatePeer(true);
-            try { _roomHost=new DirectRoomHost(); StartDecoder(); _roomHost.Error += Error; LocalText=_roomHost.Code; Status="Sala criada. Compartilhe o código com seu amigo."; _= _roomHost.WaitForGuestAsync(_peer!); }
+            try {
+                _roomHost=new DirectRoomHost(); StartDecoder();
+                var version=_sessionVersion;
+                _roomHost.Error += message => OnUi(()=>{ if (version==_sessionVersion) { Reset(); Status=message; } });
+                LocalText=_roomHost.Code; Status="Sala criada. Aguardando seu amigo na mesma rede.";
+                _= _roomHost.WaitForGuestAsync(_peer!);
+            }
             catch { Reset(); throw; }
-            return Task.CompletedTask;
         });
         JoinRoomCommand=new AsyncCommand(async()=>{
             var code=RemoteText.Trim(); if(code.Length==0)throw new InvalidOperationException("Digite o código da sala.");
+            if(code.StartsWith("GLN-",StringComparison.OrdinalIgnoreCase)) { await JoinNativeRoomAsync(code); return; }
+            if (UseInternetRooms) { await OpenInternetRoomAsync(code); return; }
             Reset(); _sender=false; CreatePeer(false); Status="Entrando na sala...";
-            try { using var timeout=CancellationTokenSource.CreateLinkedTokenSource(_sessionCancellation!.Token); timeout.CancelAfter(TimeSpan.FromSeconds(25)); await DirectRoomGuest.JoinAsync(code,_peer!,timeout.Token); StartDecoder(); Status="Conectando..."; }
-            catch(OperationCanceledException) { Reset(); throw new InvalidOperationException("Não foi possível conectar. Confira o código e a rede."); }
-            catch(Exception) { Reset(); throw new InvalidOperationException("Não foi possível entrar na sala. Confira o código e a rede."); }
+            var version=_sessionVersion;
+            try {
+                StartDecoder();
+                await DirectRoomGuest.JoinAsync(code,_peer!,_sessionCancellation!.Token);
+                if (version!=_sessionVersion) return;
+                Status=_peer!.IsConnected ? "Conectado à sala" : "Conectando...";
+            }
+            catch(Exception) when (version!=_sessionVersion) { }
+            catch(Exception ex) { Reset(); Status=ex.Message; throw; }
         });
         CreateOfferCommand=new AsyncCommand(async()=>{ Reset(); _sender=true; CreatePeer(true); Status=Strings.PreparingOffer; LocalText=await _peer!.CreateOfferAsync(); Status=Strings.SendOffer; });
         CreateAnswerCommand=new AsyncCommand(async()=>{ var offer=RemoteText; Reset(); _sender=false; CreatePeer(false); Status=Strings.PreparingAnswer; LocalText=await _peer!.AcceptOfferAsync(offer); StartDecoder(); Status=Strings.SendAnswer; });
         ApplyAnswerCommand=new AsyncCommand(()=>{ if (_peer is null || !_sender) throw new InvalidOperationException("Crie uma sala primeiro."); _peer.AcceptAnswer(RemoteText); Status=Strings.Connecting; return Task.CompletedTask; });
         CopyCommand=new AsyncCommand(()=>{ if (!string.IsNullOrEmpty(LocalText)) Clipboard.SetText(LocalText); return Task.CompletedTask; });
         ShareCommand=new AsyncCommand(StartCaptureAsync);
-        StopCommand=new AsyncCommand(()=>{ StopCapture(); Status=Strings.Stopped; return Task.CompletedTask; });
+        StopCommand=new AsyncCommand(()=>{ StopCapture(); _nativeHub?.StopHostSharing(); _nativeConnection?.NotifySharingStopped(); Status=Strings.Stopped; return Task.CompletedTask; });
         DisconnectCommand=new AsyncCommand(()=>{ Reset(); Status=Strings.Disconnected; return Task.CompletedTask; });
     }
-    private void CreatePeer(bool sender) {
-        _sessionCancellation=new(); _peer=new LocalPeer(sender);
-        _peer.StateChanged += state => OnUi(()=>Status=state switch { "connected" => "Conectado à sala", "connecting" => "Conectando...", "disconnected" => "Conexão interrompida", "failed" => "Não foi possível conectar", "closed" => "Conexão encerrada", _ => "Preparando conexão..." });
-        _peer.VideoFrame += data => { if (_decoder is not null && !_decoder.TryWrite(data)) OnUi(()=>Status="Recepção sobrecarregada. Saia da sala e tente novamente."); };
+    private async Task CreateNativeRoomAsync() {
+        if(!int.TryParse(HostPort,out var port) || port is <1024 or >65535) throw new InvalidOperationException("Escolha uma porta entre 1024 e 65535.");
+        IPAddress? advertised=null;
+        if(!string.IsNullOrWhiteSpace(HostAddress) && (!IPAddress.TryParse(HostAddress.Trim(),out advertised) || !RouterPortMapping.IsPublicIpv4(advertised))) throw new InvalidOperationException("Informe um IPv4 público válido, ou deixe o endereço em branco para tentar a configuração automática.");
+        Reset(); _sessionCancellation=new(); Notify(nameof(CanConfigureRoom));
+        var version=_sessionVersion; var token=_sessionCancellation.Token;
+        try {
+            var local=NativeRoomHost.LocalAddress();
+            _nativeHost=new NativeRoomHost(port);
+            var host=_nativeHost;
+            string detail="";
+            if(AutoMapPort) {
+                Status="Preparando conexão no roteador...";
+                try {
+                    var mapping=await RouterPortMapping.OpenAsync(local,port,token);
+                    if(version!=_sessionVersion) { mapping.Dispose(); return; }
+                    _routerMapping=mapping; advertised??=mapping.ExternalAddress;
+                    detail="Porta TCP configurada automaticamente no roteador.";
+                }
+                catch(Exception ex) when(!token.IsCancellationRequested) { detail=ex is IOException ? ex.Message : "O roteador não confirmou a abertura automática. Configure a porta manualmente."; }
+            }
+            if(version!=_sessionVersion) return;
+            bool internet=advertised is not null;
+            LocalText=host.Invite(advertised??local);
+            NetworkDetails=$"PC: {local} • TCP: {port}. "+detail+(internet ? " A conexão externa ainda precisa ser testada. Permita o Glimpse no firewall." : " Convite disponível apenas na rede local. Para internet, informe seu IPv4 público e encaminhe esta porta no roteador. CGNAT pode impedir a entrada.");
+            Status=internet ? "Sala hospedada no seu PC. Envie o convite ao seu amigo." : "Sala local criada. Internet ainda não configurada.";
+            _nativeHub=new NativeRoomHub(host);
+            _nativeHub.VideoFrame+=data=>{ if(version==_sessionVersion) _decoder?.TryWrite(data); };
+            _nativeHub.SharingStopped+=()=>ResetNativePlayback(version);
+            _nativeHub.PresentationRevoked+=()=>OnUi(()=>{ if(version==_sessionVersion) { StopCapture(); Status="Outro participante assumiu a apresentação."; } });
+            _nativeHub.ParticipantCountChanged+=count=>OnUi(()=>{ if(version==_sessionVersion) { _participantCount=count; Notify(nameof(ParticipantsText)); } });
+            _participantCount=1; Notify(nameof(ParticipantsText)); StartDecoder();
+            _=AcceptNativeAsync(_nativeHub,version,token);
+        }
+        catch(Exception) when(version!=_sessionVersion) { }
+        catch(Exception ex) { Reset(); Status=ex.Message; throw; }
+    }
+    private async Task AcceptNativeAsync(NativeRoomHub hub,int version,CancellationToken token) {
+        try {
+            await hub.RunAsync(token);
+        }
+        catch(Exception) when(token.IsCancellationRequested) { }
+        catch(Exception) { OnUi(()=>{ if(version==_sessionVersion) { Reset(); Status="Não foi possível receber o convidado. Crie uma nova sala."; } }); }
+    }
+    private async Task JoinNativeRoomAsync(string code) {
+        NativeRoomInvite.Parse(code);
+        Reset(); _sessionCancellation=new(); Notify(nameof(CanConfigureRoom));
+        var version=_sessionVersion;
+        Status="Conectando diretamente ao PC anfitrião...";
+        try {
+            var connection=await NativeRoomConnection.JoinAsync(code,_sessionCancellation.Token);
+            if(version!=_sessionVersion) { connection.Dispose(); return; }
+            BindNativeConnection(connection,version);
+        }
+        catch(Exception) when(version!=_sessionVersion) { }
+        catch(Exception ex) { Reset(); Status="Não foi possível conectar ao PC anfitrião."; throw new InvalidOperationException(ex is TimeoutException || (ex is IOException && ex.Message.Contains("sala está cheia")) ? ex.Message : "Não foi possível entrar. Confira se o anfitrião mantém a sala aberta, o convite está correto e a porta está liberada no roteador e no firewall.",ex); }
+    }
+    private void BindNativeConnection(NativeRoomConnection connection,int version) {
+        _nativeConnection=connection;
+        StartDecoder();
+        connection.VideoFrame+=data=>{ if(version==_sessionVersion) _decoder?.TryWrite(data); };
+        connection.SharingStopped+=()=>ResetNativePlayback(version);
+        connection.PresentationRevoked+=()=>OnUi(()=>{ if(version==_sessionVersion) { StopCapture(); Status="Outro participante assumiu a apresentação."; } });
+        connection.ParticipantCountChanged+=count=>OnUi(()=>{ if(version==_sessionVersion) { _participantCount=count; Notify(nameof(ParticipantsText)); } });
+        connection.Closed+=message=>OnUi(()=>{ if(version==_sessionVersion) { Reset(); Status=message; } });
+        Status="Conectado diretamente ao outro PC";
+        _=connection.RunAsync();
+    }
+    private void ResetNativePlayback(int version) {
+        void ResetPlayback() { if(version!=_sessionVersion) return; StartDecoder(); Frame=null; Status="A apresentação foi encerrada ou alterada."; }
+        // Complete the decoder swap before accepting frames from the next presenter.
+        if(_dispatcher.CheckAccess()) ResetPlayback(); else _dispatcher.Invoke(ResetPlayback);
+    }
+    private async Task OpenInternetRoomAsync(string? code) {
+        var server=InternetRoomSession.ServerAddress(SignalingServer);
+        if (code is not null) InternetRoomCode.Normalize(code);
+        Reset(); _sessionCancellation=new();
+        var version=_sessionVersion;
+        Status=code is null ? "Criando sala pela internet..." : "Entrando na sala pela internet...";
+        try {
+            var session=await InternetRoomSession.OpenAsync(server,code,_sessionCancellation.Token);
+            if (version!=_sessionVersion) { session.Dispose(); return; }
+            _internetRoom=session; _sender=code is null;
+            RoomServerSettings.Save(server);
+            CreatePeer(_sender,session.Ticket.IceServers); StartDecoder();
+            session.Closed+=message=>OnUi(()=>{ if(version==_sessionVersion) { Reset(); Status=message; } });
+            LocalText=_sender ? session.Ticket.Code : "";
+            Status=_sender ? "Sala criada. Envie o código ao seu amigo." : "Conectando à sala pela internet...";
+            _=session.RunAsync(_peer!);
+        }
+        catch(Exception) when (version!=_sessionVersion) { }
+        catch(Exception ex) { Reset(); Status=ex switch { System.Net.Http.HttpRequestException => "Serviço de salas indisponível. Confira o endereço e sua conexão.", OperationCanceledException => "O serviço de salas demorou para responder. Tente novamente.", _ => ex.Message }; throw new InvalidOperationException(Status,ex); }
+    }
+    private void CreatePeer(bool sender, IEnumerable<IceServer>? iceServers=null) {
+        _sessionCancellation ??=new();
+        var relayOnly=_internetRoom is not null && Environment.GetEnvironmentVariable("GLIMPSE_RELAY_ONLY")=="1";
+        _peer=new LocalPeer(sender,iceServers,relayOnly);
+        var version=_sessionVersion;
+        var peer=_peer;
+        var token=_sessionCancellation.Token;
+        _peer.StateChanged += state => OnUi(()=>{
+            if (version!=_sessionVersion) return;
+            var connectionVersion=++_connectionVersion;
+            if (state is "failed" or "closed") {
+                Reset(); Status="A conexão foi encerrada. Crie uma nova sala para conectar novamente."; return;
+            }
+            if (state=="disconnected") Frame=null;
+            Status=state switch { "connected" => "Conectado à sala", "connecting" => "Conectando...", "disconnected" => "Conexão interrompida. Tentando recuperar...", _ => "Preparando conexão..." };
+            if (state is "connecting" or "disconnected") _=WatchConnectionAsync(peer,version,connectionVersion,token);
+        });
+        _peer.VideoFrame += data => { if (version==_sessionVersion && _decoder is not null && !_decoder.TryWrite(data)) OnUi(()=>{ if(version==_sessionVersion) Status="Recepção sobrecarregada. Saia da sala e tente novamente."; }); };
+    }
+    private async Task WatchConnectionAsync(LocalPeer peer, int version, int connectionVersion, CancellationToken token) {
+        try {
+            await Task.Delay(TimeSpan.FromSeconds(_internetRoom is null ? 30 : 60),token);
+            OnUi(()=>{
+                if (version!=_sessionVersion || connectionVersion!=_connectionVersion || peer.IsConnected) return;
+                Reset(); Status="A conexão não foi estabelecida. Confira a internet ou a rede e crie uma nova sala.";
+            });
+        } catch (OperationCanceledException) when (token.IsCancellationRequested) { }
     }
     private async Task StartCaptureAsync() {
-        if (_peer is null || !_peer.IsConnected) throw new InvalidOperationException("Entre em uma sala e aguarde a conexão antes de compartilhar.");
-        StopCapture(); var source=new WindowsCaptureSource();
+        if (_nativeHub is null && _nativeConnection?.IsConnected!=true && _peer?.IsConnected!=true) throw new InvalidOperationException("Entre em uma sala e aguarde a conexão antes de compartilhar.");
+        var version=_sessionVersion;
+        var peer=_peer;
+        var native=_nativeConnection;
+        var hub=_nativeHub;
+        bool wasSharing=_capture is not null;
+        StopCapture();
+        if(wasSharing) { hub?.StopHostSharing(); native?.NotifySharingStopped(); }
+        var source=new WindowsCaptureSource();
         try { if (!await source.PickAsync(_owner(), 30)) { source.Dispose(); Status=Strings.CaptureCancelled; return; } }
         catch { source.Dispose(); throw; }
+        if (version!=_sessionVersion || (hub is null && native?.IsConnected!=true && peer?.IsConnected!=true)) { source.Dispose(); return; }
         _capture=source; _captureCancellation=new(); _encoder=new H264Encoder();
-        _capture.Error += Error; _encoder.Error += Error; _encoder.EncoderSelected += hardware => OnUi(() => Status = hardware ? Strings.HardwareSharing : Strings.SoftwareSharing);
-        _encoder.AccessUnit += bytes => _peer?.Send(bytes,30);
         var encoder=_encoder; var token=_captureCancellation.Token;
-        _=Task.Run(async()=>{ try { await encoder.RunAsync(source.Frames,source.Width,source.Height,30,token); } catch (Exception ex) { Error(ex.Message); } });
+        _capture.Error += message=>ReportError(message,version); _encoder.Error += message=>ReportError(message,version);
+        _encoder.EncoderSelected += hardware => OnUi(() => { if (version==_sessionVersion && !token.IsCancellationRequested) Status = hardware ? Strings.HardwareSharing : Strings.SoftwareSharing; });
+        hub?.BeginHostSharing(); native?.NotifySharingStarted();
+        _encoder.AccessUnit += bytes => { if(version==_sessionVersion && !token.IsCancellationRequested) { if(hub is not null) hub.TrySendVideo(bytes); else if(native is not null) native.TrySendVideo(bytes); else peer?.Send(bytes,30); } };
+        _=Task.Run(async()=>{ try { await encoder.RunAsync(source.Frames,source.Width,source.Height,30,token); } catch (Exception ex) { if(!token.IsCancellationRequested) ReportError(ex.Message,version); } });
         source.Start(); Status=Strings.Sharing;
     }
     private void StartDecoder() {
-        _decoder=new H264Decoder(); _decoder.Error+=Error;
+        StopDecoder();
+        var version=_sessionVersion;
+        var decoderVersion=_decoderVersion;
+        _decoderCancellation=CancellationTokenSource.CreateLinkedTokenSource(_sessionCancellation!.Token);
+        _decoder=new H264Decoder(); _decoder.Error+=message=>{ if(decoderVersion==_decoderVersion) ReportError(message,version); };
         _decoder.Frame+=pixels=>{ lock(this) { if (_uiFramePending) return; _uiFramePending=true; }
-            _dispatcher.BeginInvoke(()=>{ try { var image=BitmapSource.Create(1280,720,96,96,PixelFormats.Bgra32,null,pixels,1280*4); image.Freeze(); Frame=image; } finally {lock(this) _uiFramePending=false;} }); };
-        var decoder=_decoder; var token=_sessionCancellation!.Token;
-        _=Task.Run(async()=>{try {await decoder.RunAsync(token);} catch(Exception ex){Error(ex.Message);} });
+            _dispatcher.BeginInvoke(()=>{ try { if(version!=_sessionVersion || decoderVersion!=_decoderVersion) return; var image=BitmapSource.Create(1280,720,96,96,PixelFormats.Bgra32,null,pixels,1280*4); image.Freeze(); Frame=image; } finally {lock(this) _uiFramePending=false;} }); };
+        var decoder=_decoder; var token=_decoderCancellation.Token;
+        _=Task.Run(async()=>{try {await decoder.RunAsync(token);} catch(Exception ex){if(!token.IsCancellationRequested) ReportError(ex.Message,version);} });
     }
-    private void Error(string text) { try { var dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Glimpse"); Directory.CreateDirectory(dir); File.AppendAllText(Path.Combine(dir,"errors.log"),$"{DateTimeOffset.Now:O} {text}{Environment.NewLine}"); } catch { } OnUi(()=>Status="Ocorreu um erro. Verifique o registro do aplicativo."); }
+    private void StopDecoder() { _decoderVersion++; _decoderCancellation?.Cancel(); _decoder?.Dispose(); _decoder=null; _decoderCancellation?.Dispose(); _decoderCancellation=null; }
+    private void ReportError(string text, int version) { if(version!=_sessionVersion) return; try { var dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Glimpse"); Directory.CreateDirectory(dir); File.AppendAllText(Path.Combine(dir,"errors.log"),$"{DateTimeOffset.Now:O} {text}{Environment.NewLine}"); } catch { } OnUi(()=>{ if(version==_sessionVersion) Status="Ocorreu um erro. Verifique o registro do aplicativo."; }); }
     private void OnUi(Action action) { if (_dispatcher.CheckAccess()) action(); else _dispatcher.BeginInvoke(action); }
     private void StopCapture() { _captureCancellation?.Cancel(); _capture?.Dispose(); _encoder?.Dispose(); _capture=null; _encoder=null; _captureCancellation?.Dispose(); _captureCancellation=null; }
-    private void Reset() { _roomHost?.Dispose(); _roomHost=null; StopCapture(); _sessionCancellation?.Cancel(); _decoder?.Dispose(); _peer?.Dispose(); _decoder=null; _peer=null; _sessionCancellation?.Dispose(); _sessionCancellation=null; Frame=null; LocalText=""; }
+    private void Reset() { _sessionVersion++; _nativeConnection?.Dispose(); _nativeConnection=null; _nativeHub?.Dispose(); _nativeHub=null; _nativeHost?.Dispose(); _nativeHost=null; _routerMapping?.Dispose(); _routerMapping=null; _internetRoom?.Dispose(); _internetRoom=null; _roomHost?.Dispose(); _roomHost=null; StopCapture(); _sessionCancellation?.Cancel(); StopDecoder(); _peer?.Dispose(); _peer=null; _sessionCancellation?.Dispose(); _sessionCancellation=null; Frame=null; LocalText=""; _participantCount=0; Notify(nameof(ParticipantsText)); Notify(nameof(CanConfigureRoom)); }
     public void Dispose()=>Reset();
     private void Set<T>(ref T field,T value,[CallerMemberName]string? name=null) { if (!EqualityComparer<T>.Default.Equals(field,value)) {field=value;Notify(name);} }
     private void Notify([CallerMemberName]string? name=null)=>PropertyChanged?.Invoke(this,new PropertyChangedEventArgs(name));

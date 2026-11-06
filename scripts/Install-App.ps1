@@ -22,15 +22,19 @@ try {
     }
     Write-Host 'Verificando todos os arquivos do aplicativo...'
     Test-GlimpsePayload -PackageRoot $package
-    $ffmpeg = Get-GlimpseFfmpeg -CacheRoot $DependencyCache
+    $bundledVideo = Join-Path $package 'app\ffmpeg.exe'
+    $hasBundledVideo = Test-Path -LiteralPath $bundledVideo
+    if (-not $hasBundledVideo) { $ffmpeg = Get-GlimpseFfmpeg -CacheRoot $DependencyCache }
     $version = Join-Path $InstallRoot ('versions\' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Force -Path $version | Out-Null
     Copy-Item -Path (Join-Path $package 'app\*') -Destination $version -Recurse
-    Copy-Item -LiteralPath $ffmpeg.Executable -Destination (Join-Path $version 'ffmpeg.exe')
+    if (-not $hasBundledVideo) { Copy-Item -LiteralPath $ffmpeg.Executable -Destination (Join-Path $version 'ffmpeg.exe') }
     $licenses = Join-Path $version 'licenses'
     Copy-Item -LiteralPath (Join-Path $package 'licenses') -Destination $licenses -Recurse
-    New-Item -ItemType Directory -Force -Path (Join-Path $licenses 'ffmpeg') | Out-Null
-    Copy-Item -LiteralPath (Join-Path $ffmpeg.Directory 'LICENSE'),(Join-Path $ffmpeg.Directory 'README.txt') -Destination (Join-Path $licenses 'ffmpeg')
+    if (-not $hasBundledVideo) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $licenses 'ffmpeg') | Out-Null
+        Copy-Item -LiteralPath (Join-Path $ffmpeg.Directory 'LICENSE'),(Join-Path $ffmpeg.Directory 'README.txt') -Destination (Join-Path $licenses 'ffmpeg')
+    }
     # Probe the dependency beside the installed executable; no desktop capture occurs.
     $probe = & (Join-Path $version 'ffmpeg.exe') -hide_banner -h encoder=h264_mf 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or $probe -notmatch 'Encoder h264_mf') { throw 'O componente instalado nao oferece o codificador necessario.' }

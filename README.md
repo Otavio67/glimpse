@@ -2,7 +2,11 @@
 
 ## Instalação no Windows
 
-Baixe **Glimpse-Windows-x64.zip** em [Releases](https://github.com/Otavio67/glimpse/releases), extraia todos os arquivos e dê dois cliques em **Instalar Glimpse.cmd**. O pacote inclui o aplicativo, bibliotecas e runtime .NET; o instalador baixa e verifica o componente de vídeo, instala para seu usuário e cria atalhos na Área de Trabalho e no menu Iniciar. Não é necessário instalar ferramentas de programação.
+**[⬇ Baixar Glimpse completo para Windows x64](https://github.com/Otavio67/glimpse/releases/download/v0.2.6-preview/Glimpse-Windows-x64.zip)**
+
+Extraia o ZIP inteiro e dê dois cliques em **Abrir Glimpse.cmd**. O pacote já inclui o aplicativo, runtime .NET, bibliotecas e FFmpeg. Para criar atalhos na Área de Trabalho e no menu Iniciar, execute **Instalar Glimpse.cmd**. Não há downloads adicionais de dependências nesses dois caminhos. Requer Windows 10 2004 ou mais recente, x64. O download é público.
+
+Ao abrir, defina seu perfil, escolha **Hospedar** ou **Entrar** e use **Compartilhar tela** dentro da sala. Para pessoas em redes diferentes, o PC anfitrião precisa estar acessível pela internet; CGNAT e bloqueios de entrada podem impedir a conexão direta.
 
 Se baixar o código por **Code → Download ZIP**, execute o mesmo **Instalar Glimpse.cmd** depois de extrair. O instalador baixa também as ferramentas para compilar a aplicação automaticamente. Mais detalhes e requisitos em [instalação](docs/installation.md).
 
@@ -42,7 +46,7 @@ The commands in the remaining sections describe the equivalent manual setup and 
 
 - Windows 10 2004 (19041) or newer, x64, and a working Direct3D 11 device.
 - .NET 10 SDK including the Windows Desktop build tools: https://dotnet.microsoft.com/download/dotnet/10.0
-- An FFmpeg Windows build that contains `h264_mf`, the H.264 decoder and the `h264_metadata` bitstream filter: https://ffmpeg.org/download.html. Put `ffmpeg.exe` on `PATH` or beside the built Glimpse executable. FFmpeg is not bundled here; check the license and components of your chosen binary before distributing it. A GPL-enabled FFmpeg build was used for the headless test.
+- An FFmpeg Windows build that contains `h264_mf`, the H.264 decoder and the `h264_metadata` bitstream filter: https://ffmpeg.org/download.html. Put `ffmpeg.exe` on `PATH` or beside the built Glimpse executable. The ready-to-run release includes FFmpeg; see docs/ffmpeg-provenance.md for its origin and license. A GPL-enabled FFmpeg build was used for the headless test.
 - Both computers on a network that permits local UDP traffic between them. VPNs and firewall restrictions can prevent WebRTC/ICE from connecting.
 
 Check the encoder and filter using PowerShell:

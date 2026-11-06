@@ -1,14 +1,14 @@
 # Instalar o Glimpse no Windows
 
-1. Baixe **Glimpse-Windows-x64.zip** na seção Releases do repositório.
+1. Baixe [Glimpse-Windows-x64.zip completo](https://github.com/Otavio67/glimpse/releases/download/v0.2.6-preview/Glimpse-Windows-x64.zip).
 2. Extraia o ZIP inteiro para uma pasta. Não execute de dentro do ZIP.
-3. Dê dois cliques em **Instalar Glimpse.cmd**.
-4. Aguarde a verificação dos arquivos e o download do componente de vídeo. O instalador cria atalhos **Glimpse** na Área de Trabalho e no menu Iniciar.
+3. Dê dois cliques em **Abrir Glimpse.cmd**. Mantenha os arquivos e pastas juntos.
+4. Opcional: execute **Instalar Glimpse.cmd** para copiar o aplicativo e criar atalhos **Glimpse** na Área de Trabalho e no menu Iniciar, sem downloads adicionais.
 5. Na primeira abertura, escolha seu nome e uma foto. Você pode usar um dos quatro robôs ou importar uma foto do computador; nas próximas aberturas o perfil já estará salvo.
 
 Se o repositório estiver privado, o GitHub só permite baixar a versão às pessoas com acesso ao repositório.
 
-O pacote pronto inclui o aplicativo, suas bibliotecas e o runtime .NET. Não exige instalar Visual Studio, Git ou .NET separadamente. O FFmpeg é baixado automaticamente da versão fixada do fornecedor, com verificação SHA-256 do arquivo e do executável. A primeira instalação precisa de internet e espaço para os arquivos temporários e instalados. Downloads bloqueados ou interrompidos geram erro e podem ser tentados novamente.
+O pacote pronto inclui o aplicativo, suas bibliotecas, o runtime .NET e o FFmpeg. Não exige instalar Visual Studio, Git ou .NET separadamente. Depois do download do ZIP, abrir e instalar não precisam baixar dependências. O instalador verifica os arquivos com SHA-256 antes de copiar. As licenças e a origem dos componentes acompanham o pacote em licenses. Ao abrir, escolha Hospedar ou Entrar e, dentro da sala, Compartilhar tela. A conexão entre redes diferentes exige internet e acesso ao PC anfitrião.
 
 Também é possível usar **Code → Download ZIP**: depois de extrair o código-fonte, execute o mesmo **Instalar Glimpse.cmd**. Nesse caso o instalador também baixa o SDK .NET 10 e as bibliotecas para compilar a aplicação antes de instalar; esse caminho baixa mais arquivos e demora mais. O ZIP de Releases já contém a aplicação compilada.
 

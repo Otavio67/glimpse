@@ -16,7 +16,7 @@ A native Windows WPF/.NET 10 prototype for two-way sharing between two Glimpse i
 
 The project compiles on .NET 10. A headless test passed with generated video on two WebRTC peers in the same machine: Media Foundation reported an H.264 hardware encoder, synthetic BGRA frames were encoded, transmitted, received, and decoded. No desktop or window was captured in that test. Capture through the picker, transmission between two physical PCs, window resize, and performance targets have **not** been verified. This is a development prototype, not a security-reviewed release.
 
-The Windows picker lists displays and windows; only the selected item is captured. The encoder operates at 720p/30 fps, with a fixed 2.5 Mbps target. Frames are currently copied from GPU textures to CPU memory before FFmpeg; GPU encoding does not imply a zero-copy pipeline or guarantee low CPU usage. A resize requires stopping and selecting the source again. Minimized/protected content can be unavailable. No audio is captured.
+The Windows picker lists displays and windows; only the selected item is captured. The sharing dialog offers 360p, 480p, 720p, 1080p and 1440p (2K), all at 30 fps; 720p remains the default. Encoder targets range from 0.9 to 12 Mbps per destination, and receivers preserve the selected encoded resolution. See [video quality](docs/video-quality.md). Frames are currently copied from GPU textures to CPU memory before FFmpeg; GPU encoding does not imply a zero-copy pipeline or guarantee low CPU usage. A resize requires stopping and selecting the source again. Minimized/protected content can be unavailable. No audio is captured.
 
 ## Project-local development setup
 
@@ -119,7 +119,7 @@ SharpDX uses the MIT license. FFmpeg licenses vary by build configuration, inclu
 
 - Actual Windows Graphics Capture end-to-end and two-PC LAN use need hands-on validation; no user screen was used during development tests. The last received frame may remain visible after the other participant stops sharing.
 - Native PC rooms accept seven guests and allow any participant to present. Real-router and different-network validation remains pending. The legacy LAN/WebRTC and central-service prototypes still accept only one guest. ICE restart/rejoining in those older modes and adaptive bitrate are **not implemented**.
-- Quality selection, 1080p/60, stats overlay, measurement/optimization of CPU and memory, GPU texture-to-encoder transfer, light theme, comprehensive accessibility/localization and settings are **not implemented**.
+- 60 fps, adaptive bitrate, stats overlay, measurement/optimization of CPU and memory, GPU texture-to-encoder transfer, light theme and comprehensive accessibility/localization are **not implemented**. Quality selection through 1440p, local profiles and per-user installation are available.
 - Protocol registration, single-instance link handling and a landing page are **not implemented**. A per-user Windows installer and self-contained release ZIP are now provided; the first install downloads the pinned FFmpeg build.
 - No publicly deployed signaling server or relay is included yet; these are needed for convenient use between separate networks.
 - Prioritize capture correctness, predictable disposal, authenticated signaling, congestion handling, and performance profiling on multiple GPUs before calling this production-ready.

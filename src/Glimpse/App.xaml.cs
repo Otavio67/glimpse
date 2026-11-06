@@ -16,6 +16,7 @@ public partial class App : Application
                 new Views.RoomSetupDialog(false,viewModel).Close();
                 new Views.ShareSourceDialog().Close();
                 new Views.ProfileSetupDialog(new Profiles.UserProfileStore()).Close();
+                new Views.FullScreenViewer(viewModel).Close();
                 window.Close();
                 if(!System.IO.File.Exists(System.IO.Path.Combine(AppContext.BaseDirectory,"ffmpeg.exe"))) throw new System.IO.FileNotFoundException("O componente de video nao foi instalado.");
                 Shutdown(0);

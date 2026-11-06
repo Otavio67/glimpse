@@ -6,6 +6,8 @@ A tela inicial mostra **Hospedar sala** e **Entrar na sala de um amigo**. Cada o
 
 Ao clicar em **Compartilhar tela**, um pop-up pergunta entre **Uma janela específica** e **Tela inteira**. Em seguida, confirme a fonte no seletor do Windows. Essas opções não ficam mais na lateral. Enquanto você apresenta, a área central mostra sua própria prévia, identificada como **SUA PRÉVIA**. A prévia usa os quadros BGRA já capturados, sem disputar o canal do codificador ou decodificar o próprio vídeo. Um bitmap é reutilizado e há apenas uma atualização pendente na interface. Ao parar, trocar de fonte ou perder a apresentação, quadros pendentes da captura antiga são descartados. Cancelar a escolha de uma nova fonte preserva um compartilhamento que já estava ativo.
 
+A imagem é ajustada à área disponível no aplicativo, preservando a proporção e sem ampliar o layout para a resolução original da captura. Ao reduzir a janela, os painéis laterais são recolhidos para dar espaço ao vídeo. O botão **Tela cheia**, **F11** ou um duplo clique no vídeo abre a visualização ampliada. Use **Esc**, **F11**, duplo clique ou o botão de saída para voltar. A visualização ampliada usa o mesmo quadro e não altera a resolução enviada, a conexão ou o compartilhamento. A saída da sala fecha também a visualização ampliada.
+
 ## Pessoas e apresentação
 
 A sala aceita até **8 pessoas: anfitrião + 7 convidados**. Todos usam o mesmo convite `GLN-...`. A saída de um convidado libera a vaga e mantém a sala disponível para outras entradas. A saída do anfitrião encerra a sala para todos.
@@ -32,7 +34,7 @@ O anfitrião recebe a apresentação de um convidado e a distribui aos demais. E
 
 Cada conexão tem fila limitada, quadros limitados a 2 MB, verificação de tamanhos/tipos antes de alocar o corpo, tempo de autenticação de 15 segundos, envio de 15 segundos e leitura de 35 segundos, com mensagem de presença a cada 10 segundos. Um destinatário lento é desconectado para limitar atraso e memória, sem interromper os outros convidados. TCP pode aumentar a latência quando há perda de pacotes.
 
-O upload do anfitrião cresce com o número de destinatários. Na qualidade atual de aproximadamente 2,5 Mbps por vídeo, enviar para sete convidados pode exigir cerca de 17,5 Mbps de upload, mais o tráfego do protocolo. O limite de oito é funcional; não é uma garantia de desempenho em qualquer PC/conexão. Áudio e múltiplas apresentações simultâneas continuam fora deste modo.
+O upload do anfitrião cresce com o número de destinatários. Em 720p, aproximadamente 2,5 Mbps por vídeo, enviar para sete convidados pode exigir cerca de 17,5 Mbps de upload, mais o tráfego do protocolo. As opções vão de 360p a 1440p (2K), a 30 fps; veja [qualidades de vídeo](video-quality.md). O limite de oito é funcional; não é uma garantia de desempenho em qualquer PC/conexão. Áudio e múltiplas apresentações simultâneas continuam fora deste modo.
 
 ## Roteador e encerramento
 

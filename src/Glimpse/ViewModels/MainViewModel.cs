@@ -17,7 +17,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly Func<IntPtr> _owner;
     private readonly Action<bool>? _openRoomDialog;
-    private readonly Func<string?>? _chooseShareSource;
+    private readonly Func<VideoQuality,ShareRequest?>? _chooseShareSource;
     private readonly System.Windows.Threading.Dispatcher _dispatcher = Application.Current.Dispatcher;
     private LocalPeer? _peer;
     private DirectRoomHost? _roomHost;
@@ -46,6 +46,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private WriteableBitmap? _localPreviewBitmap;
     private string _displayName="Você";
     private ImageSource? _avatarImage;
+    private VideoQuality _selectedQuality=VideoQuality.Load();
+    private int _receivedHeight;
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Status { get => _status; private set => Set(ref _status,value); }
     public string LocalText { get => _local; private set { Set(ref _local,value); Notify(nameof(InvitationVisibility)); } }
@@ -66,13 +68,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public string ShareAreaLabel => IsSharingLocal ? "◉  SUA PRÉVIA" : "◉  COMPARTILHAMENTO";
     public string DisplayName { get=>_displayName; private set=>Set(ref _displayName,value); }
     public ImageSource? AvatarImage { get=>_avatarImage; private set=>Set(ref _avatarImage,value); }
+    public VideoQuality SelectedQuality { get=>_selectedQuality; private set { Set(ref _selectedQuality,value); Notify(nameof(SharingQualityText)); } }
+    public string SharingQualityText => !IsSharingLocal && HasFrame && _receivedHeight>0 ? $"{_receivedHeight}p recebidos" : $"{SelectedQuality.Label} / 30 fps";
     public ICommand EditProfileCommand { get; }
     public string ParticipantsText => _participantCount==0 ? (IsInRoom ? "Sala conectada" : "Nenhuma sala conectada") : $"{_participantCount} de 8 pessoas na sala";
     public string WaitingMessage => IsInRoom ? "Compartilhe sua tela ou aguarde uma apresentação." : "Hospede uma sala ou entre na sala de um amigo.";
     public string RoomTitle => NativeMode ? "Sala direta" : UseInternetRooms ? "Sala pela internet" : "Sala local";
     public string ConnectionLabel => NativeMode ? "↗   Conexão direta" : UseInternetRooms ? "↗   Internet" : "↗   Rede local";
     public string RoomHint => NativeMode ? "Até 8 pessoas. Qualquer participante pode compartilhar a tela, sem pedir permissão. Uma nova apresentação substitui a atual. O anfitrião mantém o PC ligado." : "Duas pessoas na mesma rede local.";
-    public ImageSource? Frame { get => _frame; private set { Set(ref _frame,value); Notify(nameof(WaitingVisibility)); } }
+    public ImageSource? Frame { get => _frame; private set { Set(ref _frame,value); Notify(nameof(WaitingVisibility)); Notify(nameof(HasFrame)); Notify(nameof(ViewerActionVisibility)); Notify(nameof(SharingQualityText)); } }
+    public bool HasFrame => Frame is not null;
+    public Visibility ViewerActionVisibility => HasFrame ? Visibility.Visible : Visibility.Collapsed;
     public Visibility WaitingVisibility => Frame is null ? Visibility.Visible : Visibility.Collapsed;
     public ICommand CreateRoomCommand { get; }
     public ICommand OpenHostRoomCommand { get; }
@@ -85,7 +91,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ShareCommand { get; }
     public ICommand StopCommand { get; }
     public ICommand DisconnectCommand { get; }
-    public MainViewModel(Func<IntPtr> owner,Action<bool>? openRoomDialog=null,Func<string?>? chooseShareSource=null,Action? editProfile=null) {
+    public MainViewModel(Func<IntPtr> owner,Action<bool>? openRoomDialog=null,Func<VideoQuality,ShareRequest?>? chooseShareSource=null,Action? editProfile=null) {
         _owner=owner;
         _openRoomDialog=openRoomDialog;
         _chooseShareSource=chooseShareSource;
@@ -258,8 +264,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     }
     private async Task StartCaptureAsync() {
         if (_nativeHub is null && _nativeConnection?.IsConnected!=true && _peer?.IsConnected!=true) throw new InvalidOperationException("Entre em uma sala e aguarde a conexão antes de compartilhar.");
-        var choice=_chooseShareSource?.Invoke();
-        if(_chooseShareSource is not null && choice is null) return;
+        var request=_chooseShareSource?.Invoke(SelectedQuality);
+        if(_chooseShareSource is not null && request is null) return;
+        var choice=request?.Source;
+        var quality=request?.Quality??SelectedQuality;
         var version=_sessionVersion;
         var peer=_peer;
         var native=_nativeConnection;
@@ -272,15 +280,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         if (version!=_sessionVersion || (hub is null && native?.IsConnected!=true && peer?.IsConnected!=true)) { source.Dispose(); return; }
         StopCapture();
         if(wasSharing) { hub?.StopHostSharing(); native?.NotifySharingStopped(); }
+        SelectedQuality=quality; quality.Save();
         _capture=source; _captureCancellation=new(); _encoder=new H264Encoder();
         var encoder=_encoder; var token=_captureCancellation.Token;
-        _capture.Error += message=>ReportError(message,version); _encoder.Error += message=>ReportError(message,version);
+        _capture.Error += message=>ReportError(message,version);
+        _encoder.Error += message=>{ ReportError(message,version); OnUi(()=>{ if(version==_sessionVersion && ReferenceEquals(_capture,source)) { StopCapture(); hub?.StopHostSharing(); native?.NotifySharingStopped(); Status="Falha no vídeo. Tente compartilhar com uma qualidade menor."; } }); };
         _encoder.EncoderSelected += hardware => OnUi(() => { if (version==_sessionVersion && !token.IsCancellationRequested) Status = hardware ? Strings.HardwareSharing : Strings.SoftwareSharing; });
         hub?.BeginHostSharing(); native?.NotifySharingStarted();
         IsSharingLocal=true; Frame=null;
         source.PreviewFrame+=(pixels,width,height)=>QueueLocalPreview(source,pixels,width,height,version,token);
         _encoder.AccessUnit += bytes => { if(version==_sessionVersion && !token.IsCancellationRequested) { if(hub is not null) hub.TrySendVideo(bytes); else if(native is not null) native.TrySendVideo(bytes); else peer?.Send(bytes,30); } };
-        _=Task.Run(async()=>{ try { await encoder.RunAsync(source.Frames,source.Width,source.Height,30,token); } catch (Exception ex) { if(!token.IsCancellationRequested) ReportError(ex.Message,version); } });
+        _=Task.Run(async()=>{ try { await encoder.RunAsync(source.Frames,source.Width,source.Height,30,token,quality); } catch (Exception ex) { if(!token.IsCancellationRequested) ReportError(ex.Message,version); } });
         source.Start(); Status=Strings.Sharing;
     }
     private void QueueLocalPreview(WindowsCaptureSource source,byte[] pixels,int width,int height,int version,CancellationToken token) {
@@ -302,8 +312,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         var decoderVersion=_decoderVersion;
         _decoderCancellation=CancellationTokenSource.CreateLinkedTokenSource(_sessionCancellation!.Token);
         _decoder=new H264Decoder(); _decoder.Error+=message=>{ if(decoderVersion==_decoderVersion) ReportError(message,version); };
-        _decoder.Frame+=pixels=>{ lock(this) { if (_uiFramePending || IsSharingLocal) return; _uiFramePending=true; }
-            _dispatcher.BeginInvoke(()=>{ try { if(version!=_sessionVersion || decoderVersion!=_decoderVersion || IsSharingLocal) return; var image=BitmapSource.Create(1280,720,96,96,PixelFormats.Bgra32,null,pixels,1280*4); image.Freeze(); Frame=image; } finally {lock(this) _uiFramePending=false;} }); };
+        _decoder.FrameDecoded+=decoded=>{ lock(this) { if (_uiFramePending || IsSharingLocal) return; _uiFramePending=true; }
+            _dispatcher.BeginInvoke(()=>{ try { if(version!=_sessionVersion || decoderVersion!=_decoderVersion || IsSharingLocal) return; _receivedHeight=decoded.Height; var image=BitmapSource.Create(decoded.Width,decoded.Height,96,96,PixelFormats.Bgra32,null,decoded.Pixels,decoded.Width*4); image.Freeze(); Frame=image; } finally {lock(this) _uiFramePending=false;} }); };
         var decoder=_decoder; var token=_decoderCancellation.Token;
         _=Task.Run(async()=>{try {await decoder.RunAsync(token);} catch(Exception ex){if(!token.IsCancellationRequested) ReportError(ex.Message,version);} });
     }

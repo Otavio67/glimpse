@@ -8,12 +8,13 @@ public sealed class H264Encoder : IDisposable
     public event Action<string>? Error;
     public event Action<bool>? EncoderSelected;
     public bool UsingHardware { get; private set; }
-    public async Task RunAsync(ChannelReader<byte[]> frames, int width, int height, int fps, CancellationToken cancel)
+    public async Task RunAsync(ChannelReader<byte[]> frames, int width, int height, int fps, CancellationToken cancel,VideoQuality? quality=null)
     {
+        quality=VideoQuality.FromId(quality?.Id);
         UsingHardware = HardwareEncoderProbe.HasH264HardwareEncoder(); EncoderSelected?.Invoke(UsingHardware);
         string hardware = UsingHardware ? "1" : "0";
         // A registered hardware encoder is required to succeed; no silent software fallback.
-        var args = $"-hide_banner -loglevel error -f rawvideo -pixel_format bgra -video_size {width}x{height} -framerate {fps} -i pipe:0 -an -vf scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=nv12 -c:v h264_mf -hw_encoding {hardware} -b:v 2500k -g {fps * 2} -bf 0 -bsf:v h264_metadata=aud=insert -f h264 pipe:1";
+        var args = $"-hide_banner -loglevel error -f rawvideo -pixel_format bgra -video_size {width}x{height} -framerate {fps} -i pipe:0 -an -vf scale={quality.Width}:{quality.Height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={quality.Width}:{quality.Height}:(ow-iw)/2:(oh-ih)/2,format=nv12 -c:v h264_mf -hw_encoding {hardware} -b:v {quality.Bitrate} -g {fps * 2} -bf 0 -bsf:v h264_metadata=aud=insert -f h264 pipe:1";
         _process = Start(args); var proc = _process;
         var stderr = proc.StandardError.ReadToEndAsync(cancel);
         var read = Task.Run(async () => { var parser = new AnnexBAccessUnits(); var buffer = new byte[32768]; int n; while ((n = await proc.StandardOutput.BaseStream.ReadAsync(buffer, cancel)) > 0) foreach (var unit in parser.Push(buffer.AsSpan(0,n))) AccessUnit?.Invoke(unit); }, cancel);

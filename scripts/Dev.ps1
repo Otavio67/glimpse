@@ -14,9 +14,10 @@ $env:GLIMPSE_FFMPEG = $ffmpeg
 $appProject = Join-Path $root 'src\Glimpse\Glimpse.csproj'
 $testProject = Join-Path $root 'tests\Glimpse.Headless\Glimpse.Headless.csproj'
 $twoProcessProject = Join-Path $root 'tests\Glimpse.TwoProcess\Glimpse.TwoProcess.csproj'
+$qualityProject = Join-Path $root 'tests\Glimpse.Quality\Glimpse.Quality.csproj'
 switch ($Action) {
     'Build' { & $dotnet build $appProject -c Release }
-    'Test'  { & (Join-Path $PSScriptRoot 'Test-Rooms.ps1'); if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & $dotnet run --project $testProject -c Release; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & $dotnet run --project $twoProcessProject -c Release }
+    'Test'  { & (Join-Path $PSScriptRoot 'Test-Rooms.ps1'); if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & $dotnet run --project $testProject -c Release; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & $dotnet run --project $twoProcessProject -c Release; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & $dotnet run --project $qualityProject -c Release }
     'Run'   { & $dotnet run --project $appProject -c Release }
 }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

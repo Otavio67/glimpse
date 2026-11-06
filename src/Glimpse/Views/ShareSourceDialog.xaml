@@ -4,11 +4,14 @@
         Title="Compartilhar tela" Width="490" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
         Background="#171C2A" Foreground="#EEF1FA" FontFamily="Segoe UI">
-  <StackPanel Margin="26">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="26">
     <TextBlock Text="O que você quer compartilhar?" FontSize="21" FontWeight="SemiBold" TextWrapping="Wrap"/>
     <TextBlock Text="Depois da escolha, confirme a janela ou o monitor no seletor do Windows." Foreground="#A8B2C5" TextWrapping="Wrap" LineHeight="20" Margin="0,10,0,22"/>
+    <TextBlock Text="QUALIDADE DO ENVIO" Foreground="#A8B2C5" FontSize="10" FontWeight="Bold" Margin="0,0,0,7"/>
+    <ComboBox x:Name="QualityChoice" DisplayMemberPath="DisplayText" SelectionChanged="QualityChanged" Padding="10,8" AutomationProperties.Name="Qualidade do compartilhamento"/>
+    <TextBlock x:Name="QualityHelp" Foreground="#A8B2C5" FontSize="12" TextWrapping="Wrap" LineHeight="19" Margin="0,9,0,20"/>
     <Button Content="▣   Uma janela específica" Click="ChooseWindow" HorizontalContentAlignment="Left" Margin="0,0,0,10" Padding="16,15" AutomationProperties.Name="Compartilhar uma janela específica"/>
     <Button Content="▢   Tela inteira" Click="ChooseDisplay" HorizontalContentAlignment="Left" Margin="0" Padding="16,15" AutomationProperties.Name="Compartilhar a tela inteira"/>
     <Button Content="Cancelar" IsCancel="True" HorizontalAlignment="Right" Margin="0,22,0,0"/>
-  </StackPanel>
+  </StackPanel></ScrollViewer>
 </Window>

@@ -1,6 +1,6 @@
 # Salas hospedadas no próprio PC
 
-Este é o modo padrão do Glimpse: **Hospedar no próprio PC**. Não usa Tailscale, serviço de salas hospedado, TURN, STUN ou conta em provedor. O próprio aplicativo recebe os convidados e distribui o vídeo. Os projetos de sinalização central anteriores permanecem no repositório como alternativa de desenvolvimento, sem serviço contratado ou publicado.
+Este é o modo padrão do Glimpse: **Hospedar no próprio PC**. O próprio aplicativo recebe os convidados e distribui o vídeo, sem precisar de um serviço de salas. É possível usar uma rede virtual já configurada, como Radmin ou Hamachi, quando a conexão direta pela internet não estiver disponível.
 
 A tela inicial mostra **Hospedar sala** e **Entrar na sala de um amigo**. Cada opção abre um pop-up com os campos correspondentes. Os controles de compartilhar, parar e sair só aparecem depois de criar a sala ou concluir a entrada; ao sair, a tela volta às duas opções iniciais. O anfitrião pode abrir novamente o convite por **Ver convite da sala**.
 
@@ -12,6 +12,10 @@ A imagem é ajustada à área disponível no aplicativo, preservando a proporç�
 
 A sala aceita até **8 pessoas: anfitrião + 7 convidados**. Todos usam o mesmo convite `GLN-...`. A saída de um convidado libera a vaga e mantém a sala disponível para outras entradas. A saída do anfitrião encerra a sala para todos.
 
+Os primeiros caracteres podem se repetir entre salas hospedadas no mesmo endereço e porta. Cada sala nova gera um certificado e uma chave novos. Copie o link da sala que está aberta agora.
+
+O anfitrião usa **Copiar link da sala**. O convidado abre o link no navegador e clica em **Abrir Glimpse**. Para o Windows reconhecer o link, execute **Instalar Glimpse.cmd** uma vez. Na versão portátil, cole o link ou o código em **Entrar na sala de um amigo**. O site só encaminha a abertura do aplicativo. O convite fica no fragmento do endereço e o vídeo segue diretamente entre os PCs.
+
 **Qualquer participante pode compartilhar uma janela ou tela**, usando o seletor do Windows, sem aprovação do anfitrião. Há uma apresentação por vez: quem começa a compartilhar assume a apresentação, interrompendo a captura do apresentador anterior. Um convidado pode apresentar para o anfitrião e os demais convidados. Parar de compartilhar mantém a pessoa na sala e limpa a apresentação dos outros. Não há compartilhamentos simultâneos nesta versão.
 
 ## Hospedar pela internet
@@ -22,15 +26,23 @@ A sala aceita até **8 pessoas: anfitrião + 7 convidados**. Todos usam o mesmo 
 4. Permita conexões de entrada do Glimpse nessa porta no Firewall do Windows. O aplicativo não altera regras do firewall automaticamente.
 5. Crie a sala, envie o convite por um canal confiável e mantenha o PC ligado. Os convidados precisam apenas colar o convite e entrar; não precisam abrir portas no próprio roteador.
 
-Se não houver endereço público configurado/descoberto, o aplicativo cria um convite de **rede local** e informa que a internet ainda não está configurada. Um endereço privado retornado pelo roteador indica possível NAT duplo ou CGNAT; não prova que a operadora seja a responsável. A aplicação não consulta sites de descoberta de IP. O encaminhamento no roteador não supera bloqueios de entrada da operadora. Hospedagem direta pode não funcionar nessas redes sem alterar a conexão com a operadora.
+Se o Windows tiver uma rota com IPv6 global, o Glimpse inclui esse endereço no mesmo convite. O convidado tenta as rotas disponíveis sem digitar IP. A rota IPv6 também precisa aceitar conexões de entrada no roteador e no firewall. Use uma versão atual em ambos os PCs para convites que incluem IPv6.
+
+Quando não encontra IPv4 público nem IPv6 global, o aplicativo cria um convite de rede local. Um endereço privado retornado pelo roteador pode indicar NAT duplo ou CGNAT. O encaminhamento no roteador não supera bloqueios de entrada da operadora. Se nenhuma rota direta estiver disponível, use uma rede virtual compartilhada ou uma conexão que permita receber convidados.
 
 O diagnóstico de abertura da porta **não comprova acesso externo**. A validação final precisa de um convidado em outra rede. Usar o convite público dentro da mesma rede pode falhar se o roteador não suportar NAT loopback.
 
+## Usar a mesma rede Radmin ou Hamachi
+
+1. Conectem os dois PCs à mesma rede virtual e confiram se aparecem um para o outro nela.
+2. No PC anfitrião, abra **Hospedar sala → Configurações da conexão** e preencha **IPv4 de rede compartilhada** com o IPv4 do próprio anfitrião mostrado no Radmin ou Hamachi. Deixe **IPv4 público** em branco.
+3. Crie a sala e envie o novo convite. O convidado cola o código no Glimpse. A sala escuta no adaptador escolhido e não tenta abrir portas no roteador. O Firewall do Windows do anfitrião precisa permitir a entrada do Glimpse pela rede usada.
+
 ## Transporte e limites
 
-Uma conexão TCP protegida por TLS 1.2/1.3 por convidado transporta controle e vídeo H.264. O convite contém IPv4, porta, impressão SHA-256 do certificado e chave aleatória de 256 bits. O cliente fixa o certificado pelo convite e o anfitrião confere a chave antes de aceitar a entrada. Não é um convite curto: ele contém os dados que um serviço central normalmente guardaria. Não publique o convite; quem o possui pode ocupar uma vaga e assumir a apresentação.
+Uma conexão TCP protegida por TLS 1.2/1.3 por convidado transporta controle e vídeo H.264. O convite contém IPv4, porta, impressão SHA-256 do certificado, chave aleatória de 256 bits e, quando disponível, IPv6. O cliente fixa o certificado pelo convite e o anfitrião confere a chave antes de aceitar a entrada. Envie o convite somente a quem deve entrar. Quem o possui pode ocupar uma vaga e assumir a apresentação.
 
-O anfitrião recebe a apresentação de um convidado e a distribui aos demais. Ele termina as conexões TLS, portanto é parte confiável da sala; não há criptografia adicional que esconda a mídia do anfitrião. Esta implementação usa IPv4 e não usa WebRTC no modo nativo. Os modos antigos de rede local e serviço central continuam usando WebRTC.
+O anfitrião recebe a apresentação de um convidado e a distribui aos demais. Ele termina as conexões TLS, portanto é parte confiável da sala; não há criptografia adicional que esconda a mídia do anfitrião. Os modos antigos de rede local e serviço central continuam usando WebRTC.
 
 Cada conexão tem fila limitada, quadros limitados a 2 MB, verificação de tamanhos/tipos antes de alocar o corpo, tempo de autenticação de 15 segundos, envio de 15 segundos e leitura de 35 segundos, com mensagem de presença a cada 10 segundos. Um destinatário lento é desconectado para limitar atraso e memória, sem interromper os outros convidados. TCP pode aumentar a latência quando há perda de pacotes.
 

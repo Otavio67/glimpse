@@ -12,6 +12,8 @@ using Glimpse.Resources;
 using Glimpse.RoomProtocol;
 using Glimpse.Profiles;
 using System.Net;
+using System.Net.Sockets;
+using System.Security.Authentication;
 namespace Glimpse.ViewModels;
 public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 {
@@ -37,7 +39,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private string _status="Pronto para começar", _local="", _remote="";
     private bool _useInternetRooms=false;
     private bool _nativeMode=true, _autoMapPort=true;
-    private string _hostAddress="", _hostPort="45873", _networkDetails="Seu PC hospeda a sala. Para receber pela internet, ele precisa estar acessível por uma porta TCP.";
+    private string _hostAddress="", _sharedNetworkAddress="", _hostPort="45873", _networkDetails="Seu PC hospeda a sala. Para receber pela internet, ele precisa estar acessível por uma porta TCP.";
     private string _signalingServer=RoomServerSettings.Load();
     private ImageSource? _frame;
     private bool _isInRoom;
@@ -50,13 +52,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private int _receivedHeight;
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Status { get => _status; private set => Set(ref _status,value); }
-    public string LocalText { get => _local; private set { Set(ref _local,value); Notify(nameof(InvitationVisibility)); } }
+    public string LocalText { get => _local; private set { Set(ref _local,value); Notify(nameof(InvitationVisibility)); Notify(nameof(InviteLinkVisibility)); } }
     public string RemoteText { get => _remote; set => Set(ref _remote,value); }
     public bool UseInternetRooms { get=>_useInternetRooms; set { Set(ref _useInternetRooms,value); Notify(nameof(RoomTitle)); Notify(nameof(ConnectionLabel)); Notify(nameof(RoomHint)); } }
     public string SignalingServer { get=>_signalingServer; set=>Set(ref _signalingServer,value); }
     public bool NativeMode { get=>_nativeMode; set { Set(ref _nativeMode,value); Notify(nameof(RoomTitle)); Notify(nameof(ConnectionLabel)); Notify(nameof(RoomHint)); } }
     public bool AutoMapPort { get=>_autoMapPort; set=>Set(ref _autoMapPort,value); }
     public string HostAddress { get=>_hostAddress; set=>Set(ref _hostAddress,value); }
+    public string SharedNetworkAddress { get=>_sharedNetworkAddress; set=>Set(ref _sharedNetworkAddress,value); }
     public string HostPort { get=>_hostPort; set=>Set(ref _hostPort,value); }
     public string NetworkDetails { get=>_networkDetails; private set=>Set(ref _networkDetails,value); }
     public bool CanConfigureRoom => _sessionCancellation is null;
@@ -88,6 +91,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand CreateAnswerCommand { get; }
     public ICommand ApplyAnswerCommand { get; }
     public ICommand CopyCommand { get; }
+    public ICommand CopyInviteLinkCommand { get; }
+    public Visibility InviteLinkVisibility => LocalText.StartsWith("GLN-",StringComparison.Ordinal) ? Visibility.Visible : Visibility.Collapsed;
     public ICommand ShareCommand { get; }
     public ICommand StopCommand { get; }
     public ICommand DisconnectCommand { get; }
@@ -113,7 +118,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             catch { Reset(); throw; }
         });
         JoinRoomCommand=new AsyncCommand(async()=>{
-            var code=RemoteText.Trim(); if(code.Length==0)throw new InvalidOperationException("Digite o código da sala.");
+            var code=RoomInviteLink.Unwrap(RemoteText.Trim()); if(code.Length==0)throw new InvalidOperationException("Cole o link ou código da sala.");
             if(code.StartsWith("GLN-",StringComparison.OrdinalIgnoreCase)) { await JoinNativeRoomAsync(code); return; }
             if (UseInternetRooms) { await OpenInternetRoomAsync(code); return; }
             Reset(); _sender=false; CreatePeer(false); Status="Entrando na sala...";
@@ -131,6 +136,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         CreateAnswerCommand=new AsyncCommand(async()=>{ var offer=RemoteText; Reset(); _sender=false; CreatePeer(false); Status=Strings.PreparingAnswer; LocalText=await _peer!.AcceptOfferAsync(offer); StartDecoder(); Status=Strings.SendAnswer; });
         ApplyAnswerCommand=new AsyncCommand(()=>{ if (_peer is null || !_sender) throw new InvalidOperationException("Crie uma sala primeiro."); _peer.AcceptAnswer(RemoteText); Status=Strings.Connecting; return Task.CompletedTask; });
         CopyCommand=new AsyncCommand(()=>{ if (!string.IsNullOrEmpty(LocalText)) Clipboard.SetText(LocalText); return Task.CompletedTask; });
+        CopyInviteLinkCommand=new AsyncCommand(()=>{ if(InviteLinkVisibility==Visibility.Visible) Clipboard.SetText(RoomInviteLink.ToWebLink(LocalText)); return Task.CompletedTask; });
         ShareCommand=new AsyncCommand(StartCaptureAsync);
         StopCommand=new AsyncCommand(()=>{ StopCapture(); _nativeHub?.StopHostSharing(); _nativeConnection?.NotifySharingStopped(); Status=Strings.Stopped; return Task.CompletedTask; });
         DisconnectCommand=new AsyncCommand(()=>{ Reset(); Status=Strings.Disconnected; return Task.CompletedTask; });
@@ -139,16 +145,23 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public void CancelRoomSetup() { if(!IsInRoom) { Reset(); Status="Pronto para começar"; } }
     private async Task CreateNativeRoomAsync() {
         if(!int.TryParse(HostPort,out var port) || port is <1024 or >65535) throw new InvalidOperationException("Escolha uma porta entre 1024 e 65535.");
+        IPAddress? sharedAddress=null;
+        if(!string.IsNullOrWhiteSpace(SharedNetworkAddress) &&
+            (!IPAddress.TryParse(SharedNetworkAddress.Trim(),out sharedAddress) || !NativeRoomHost.IsAssignedLocalAddress(sharedAddress)))
+            throw new InvalidOperationException("Informe o IPv4 deste PC na rede compartilhada. Confira se o adaptador está conectado.");
+        if(sharedAddress is not null && !string.IsNullOrWhiteSpace(HostAddress))
+            throw new InvalidOperationException("Preencha apenas um endereço: IPv4 público ou IPv4 da rede compartilhada.");
         IPAddress? advertised=null;
         if(!string.IsNullOrWhiteSpace(HostAddress) && (!IPAddress.TryParse(HostAddress.Trim(),out advertised) || !RouterPortMapping.IsPublicIpv4(advertised))) throw new InvalidOperationException("Informe um IPv4 público válido, ou deixe o endereço em branco para tentar a configuração automática.");
         Reset(); _sessionCancellation=new(); Notify(nameof(CanConfigureRoom));
         var version=_sessionVersion; var token=_sessionCancellation.Token;
         try {
-            var local=NativeRoomHost.LocalAddress();
-            _nativeHost=new NativeRoomHost(port);
+            var local=sharedAddress??NativeRoomHost.LocalAddress();
+            var ipv6=sharedAddress is null ? NativeRoomHost.PublicIPv6Address() : null;
+            _nativeHost=new NativeRoomHost(port,sharedAddress,enableIPv6:ipv6 is not null);
             var host=_nativeHost;
             string detail="";
-            if(AutoMapPort) {
+            if(sharedAddress is null && AutoMapPort) {
                 Status="Preparando conexão no roteador...";
                 try {
                     var mapping=await RouterPortMapping.OpenAsync(local,port,token);
@@ -159,10 +172,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 catch(Exception ex) when(!token.IsCancellationRequested) { detail=ex is IOException ? ex.Message : "O roteador não confirmou a abertura automática. Configure a porta manualmente."; }
             }
             if(version!=_sessionVersion) return;
-            bool internet=advertised is not null;
-            LocalText=host.Invite(advertised??local);
-            NetworkDetails=$"PC: {local} • TCP: {port}. "+detail+(internet ? " A conexão externa ainda precisa ser testada. Permita o Glimpse no firewall." : " Convite disponível apenas na rede local. Para internet, informe seu IPv4 público e encaminhe esta porta no roteador. CGNAT pode impedir a entrada.");
-            Status=internet ? "Sala hospedada no seu PC. Envie o convite ao seu amigo." : "Sala local criada. Internet ainda não configurada.";
+            bool internet=advertised is not null || ipv6 is not null;
+            LocalText=host.Invite(advertised??local,ipv6:ipv6);
+            NetworkDetails=$"PC: {local} • TCP: {port}. "+(sharedAddress is not null
+                ? "Convite para a rede compartilhada. Seu amigo precisa estar na mesma rede local, Radmin ou Hamachi. Permita o Glimpse no firewall nessa rede."
+                : detail+(ipv6 is not null ? " O link também pode usar IPv6 entre redes compatíveis." : "")+
+                    (internet ? " Permita a porta no firewall. O acesso externo ainda precisa ser testado." : " Convite disponível apenas na rede local. Para internet direta, use um IPv4 público e encaminhe a porta. Se estiverem na mesma VPN, recrie a sala com o IPv4 dessa rede."));
+            Status=internet ? "Sala hospedada no seu PC. Envie o link ao seu amigo." : "Sala criada para a rede compartilhada.";
             _nativeHub=new NativeRoomHub(host);
             _nativeHub.VideoFrame+=data=>{ if(version==_sessionVersion) _decoder?.TryWrite(data); };
             _nativeHub.SharingStopped+=()=>ResetNativePlayback(version);
@@ -173,6 +189,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             _=AcceptNativeAsync(_nativeHub,version,token);
         }
         catch(Exception) when(version!=_sessionVersion) { }
+        catch(SocketException ex) when(ex.SocketErrorCode==SocketError.AddressAlreadyInUse) { Reset(); Status="A porta escolhida já está em uso neste PC. Feche a outra sala ou escolha outra porta."; throw new InvalidOperationException(Status,ex); }
         catch(Exception ex) { Reset(); Status=ex.Message; throw; }
     }
     private async Task AcceptNativeAsync(NativeRoomHub hub,int version,CancellationToken token) {
@@ -193,7 +210,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             BindNativeConnection(connection,version);
         }
         catch(Exception) when(version!=_sessionVersion) { }
-        catch(Exception ex) { Reset(); Status="Não foi possível conectar ao PC anfitrião."; throw new InvalidOperationException(ex is TimeoutException || (ex is IOException && ex.Message.Contains("sala está cheia")) ? ex.Message : "Não foi possível entrar. Confira se o anfitrião mantém a sala aberta, o convite está correto e a porta está liberada no roteador e no firewall.",ex); }
+        catch(Exception ex) { Reset(); Status="Não foi possível conectar ao PC anfitrião."; throw new InvalidOperationException(ex is TimeoutException or IOException or AuthenticationException ? ex.Message : "Não foi possível entrar. Peça ao anfitrião para copiar novamente o convite da sala aberta agora.",ex); }
     }
     private void BindNativeConnection(NativeRoomConnection connection,int version) {
         _nativeConnection=connection;

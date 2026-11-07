@@ -1,18 +1,28 @@
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Glimpse.Encoding;
 using Glimpse.Networking;
 
 using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(args.Contains("--video")?120:50));
-using var host=new NativeRoomHost(0);
+using var host=new NativeRoomHost(0,IPAddress.Loopback);
 using var hub=new NativeRoomHub(host);
 var hosting=hub.RunAsync(deadline.Token);
 _=hosting.ContinueWith(task=>{ if(task.IsFaulted) Console.Error.WriteLine(task.Exception); },TaskScheduler.Default);
 var code=host.Invite(IPAddress.Loopback);
 var invite=NativeRoomInvite.Parse(code);
 Require(invite.Port==host.Port && invite.Address.Equals(IPAddress.Loopback),"Invitation round trip failed.");
+Require(code==host.Invite(IPAddress.Loopback),"The invite changed within the same room.");
+Require(RoomInviteLink.Unwrap(RoomInviteLink.ToWebLink(code))==code,"Web invite did not round trip.");
+Require(RoomInviteLink.FromActivation("glimpse://join/"+code)==code,"App invite did not round trip.");
+Require(RoomInviteLink.FromActivation("glimpse://join/"+code+"?extra=1") is null,"Unexpected URL arguments were accepted.");
+using(var otherHost=new NativeRoomHost(0,IPAddress.Loopback)) {
+    var otherInvite=NativeRoomInvite.Parse(otherHost.Invite(IPAddress.Loopback,host.Port));
+    Require(!otherInvite.Secret.SequenceEqual(invite.Secret) && !otherInvite.Fingerprint.SequenceEqual(invite.Fingerprint),
+        "Two rooms reused credentials for the same advertised address and port.");
+}
 foreach(var address in new[]{"10.0.0.1","100.64.1.1","100.127.255.254","172.16.0.1","192.168.1.1","169.254.1.2","127.0.0.1","0.0.0.0","224.0.0.1","255.255.255.255","203.0.113.1"})
     Require(!RouterPortMapping.IsPublicIpv4(IPAddress.Parse(address)),"Non-public address accepted: "+address);
 Require(RouterPortMapping.IsPublicIpv4(IPAddress.Parse("8.8.8.8")),"Public IPv4 rejected.");
@@ -22,8 +32,26 @@ foreach(var invalid in new[]{"", "GLN-?", "GLN-AA",new string('x',200)}) {
 var wrongSecret=invite.Secret.ToArray(); wrongSecret[0]^=1;
 await RejectAsync((invite with {Secret=wrongSecret}).Encode());
 var wrongPin=invite.Fingerprint.ToArray(); wrongPin[0]^=1;
-await RejectAsync((invite with {Fingerprint=wrongPin}).Encode());
+try { using var wrongRoom=await NativeRoomConnection.JoinAsync((invite with {Fingerprint=wrongPin}).Encode(),deadline.Token); throw new Exception("Wrong room identity accepted."); }
+catch(System.Security.Authentication.AuthenticationException ex) { Require(ex.Message.Contains("identidade da sala"),"The user was not told the room identity could not be confirmed."); }
 Console.WriteLine("Invitation validation, public/private IPv4 classification, wrong secret and wrong certificate passed.");
+
+if(Socket.OSSupportsIPv6) {
+    using var dualStack=new NativeRoomHost(0,enableIPv6:true);
+    var dualCode=dualStack.Invite(IPAddress.Loopback,ipv6:IPAddress.IPv6Loopback);
+    Require(NativeRoomInvite.Parse(dualCode).IPv6Address?.Equals(IPAddress.IPv6Loopback)==true,"IPv6 invite did not round trip.");
+    Require(RoomInviteLink.Unwrap(RoomInviteLink.ToWebLink(dualCode))==dualCode,"Dual-stack web invite did not round trip.");
+    var accepting=dualStack.AcceptAsync(deadline.Token);
+    using var ipv6Guest=await NativeRoomConnection.JoinAsync(dualCode,deadline.Token);
+    using var accepted=await accepting;
+
+    var fallbackCode=host.Invite(IPAddress.Loopback,ipv6:IPAddress.IPv6Loopback);
+    using(var fallbackGuest=await NativeRoomConnection.JoinAsync(fallbackCode,deadline.Token)) {
+        await UntilAsync(()=>hub.ParticipantCount==2);
+    }
+    await UntilAsync(()=>hub.ParticipantCount==1);
+    Console.WriteLine("IPv6 connection and automatic IPv4 fallback passed.");
+}
 
 var connections=new List<NativeRoomConnection>(); var runs=new List<Task>();
 try {

@@ -10,13 +10,15 @@ using System.Threading.Channels;
 
 namespace Glimpse.Networking;
 
-public sealed record NativeRoomInvite(IPAddress Address, int Port, byte[] Fingerprint, byte[] Secret)
+public sealed record NativeRoomInvite(IPAddress Address, int Port, byte[] Fingerprint, byte[] Secret, IPAddress? IPv6Address=null)
 {
     public string Encode()
     {
         if(Address.AddressFamily!=AddressFamily.InterNetwork || Port is <1 or >65535 || Fingerprint.Length!=32 || Secret.Length!=32) throw new InvalidDataException("Dados de convite inválidos.");
-        var data=new byte[70]; Address.GetAddressBytes().CopyTo(data,0);
+        if(IPv6Address is not null && !IsValidIPv6(IPv6Address)) throw new InvalidDataException("Endereço IPv6 inválido no convite.");
+        var data=new byte[IPv6Address is null ? 70 : 86]; Address.GetAddressBytes().CopyTo(data,0);
         BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(4), (ushort)Port); Fingerprint.CopyTo(data,6); Secret.CopyTo(data,38);
+        IPv6Address?.GetAddressBytes().CopyTo(data,70);
         return "GLN-"+Convert.ToBase64String(data).TrimEnd('=').Replace('+','-').Replace('/','_');
     }
     public static NativeRoomInvite Parse(string code)
@@ -26,12 +28,17 @@ public sealed record NativeRoomInvite(IPAddress Address, int Port, byte[] Finger
         byte[] data;
         try { var value=code[4..].Replace('-','+').Replace('_','/'); data=Convert.FromBase64String(value.PadRight((value.Length+3)/4*4,'=')); }
         catch(FormatException) { throw new InvalidDataException("Convite incompleto ou inválido."); }
-        if(data.Length!=70) throw new InvalidDataException("Convite incompleto ou inválido.");
+        if(data.Length is not (70 or 86)) throw new InvalidDataException("Convite incompleto ou inválido.");
         int port=BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(4));
         var address=new IPAddress(data.AsSpan(0,4));
         if(port==0 || address.Equals(IPAddress.Any) || address.GetAddressBytes()[0]>=224) throw new InvalidDataException("Endereço ou porta inválidos no convite.");
-        return new(address,port,data.AsSpan(6,32).ToArray(),data.AsSpan(38,32).ToArray());
+        var ipv6=data.Length==86 ? new IPAddress(data.AsSpan(70,16)) : null;
+        if(ipv6 is not null && !IsValidIPv6(ipv6)) throw new InvalidDataException("Endereço IPv6 inválido no convite.");
+        return new(address,port,data.AsSpan(6,32).ToArray(),data.AsSpan(38,32).ToArray(),ipv6);
     }
+    internal static bool IsGlobalIPv6(IPAddress address) => address.AddressFamily==AddressFamily.InterNetworkV6 &&
+        address.ScopeId==0 && (address.GetAddressBytes()[0]&0xe0)==0x20;
+    private static bool IsValidIPv6(IPAddress address) => address.Equals(IPAddress.IPv6Loopback) || IsGlobalIPv6(address);
 }
 
 public sealed class NativeRoomHost : IDisposable
@@ -43,7 +50,7 @@ public sealed class NativeRoomHost : IDisposable
     private readonly CancellationToken _token;
     private int _disposed;
     public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
-    public NativeRoomHost(int port=45873)
+    public NativeRoomHost(int port=45873, IPAddress? bindAddress=null, bool enableIPv6=false)
     {
         _token=_stop.Token;
         using var rsa=RSA.Create(2048);
@@ -52,10 +59,14 @@ public sealed class NativeRoomHost : IDisposable
         var pfx=temporary.Export(X509ContentType.Pfx);
         try { _certificate=X509CertificateLoader.LoadPkcs12(pfx,null,X509KeyStorageFlags.UserKeySet); }
         finally { CryptographicOperations.ZeroMemory(pfx); }
-        _listener=new TcpListener(IPAddress.Any,port);
-        try { _listener.Start(); } catch { _certificate.Dispose(); _stop.Dispose(); throw; }
+        bool dualStack=bindAddress is null && enableIPv6 && Socket.OSSupportsIPv6;
+        _listener=new TcpListener(bindAddress??(dualStack ? IPAddress.IPv6Any : IPAddress.Any),port);
+        try {
+            if(dualStack) _listener.Server.DualMode=true;
+            _listener.Start();
+        } catch { _listener.Stop(); _certificate.Dispose(); _stop.Dispose(); throw; }
     }
-    public string Invite(IPAddress address, int? publicPort=null) => new NativeRoomInvite(address,publicPort??Port,SHA256.HashData(_certificate.RawData),_secret).Encode();
+    public string Invite(IPAddress address, int? publicPort=null, IPAddress? ipv6=null) => new NativeRoomInvite(address,publicPort??Port,SHA256.HashData(_certificate.RawData),_secret,ipv6).Encode();
     public async Task<NativeRoomConnection> AcceptAsync(CancellationToken token,Func<bool>? canJoin=null)
     {
         using var lifetime=CancellationTokenSource.CreateLinkedTokenSource(token,_token);
@@ -82,14 +93,32 @@ public sealed class NativeRoomHost : IDisposable
     }
     public static IPAddress LocalAddress()
     {
+        // Let Windows choose the IPv4 route instead of relying on adapter enumeration order.
+        // Connecting a UDP socket here selects a local endpoint without sending a datagram.
+        if(RouteAddress(IPAddress.Parse("1.1.1.1")) is { } routed && !routed.Equals(IPAddress.Any)) return routed;
         foreach(var adapter in NetworkInterface.GetAllNetworkInterfaces().Where(n=>n.OperationalStatus==OperationalStatus.Up && n.NetworkInterfaceType!=NetworkInterfaceType.Loopback)) {
             var properties=adapter.GetIPProperties();
-            if(!properties.GatewayAddresses.Any(g=>g.Address.AddressFamily==AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any))) continue;
             var address=properties.UnicastAddresses.Select(a=>a.Address).FirstOrDefault(a=>a.AddressFamily==AddressFamily.InterNetwork && !IPAddress.IsLoopback(a));
             if(address is not null) return address;
         }
         throw new IOException("Nenhuma rede IPv4 ativa foi encontrada.");
     }
+    public static IPAddress? PublicIPv6Address() => Socket.OSSupportsIPv6 &&
+        RouteAddress(IPAddress.Parse("2606:4700:4700::1111")) is { } address && NativeRoomInvite.IsGlobalIPv6(address) ? address : null;
+
+    private static IPAddress? RouteAddress(IPAddress destination)
+    {
+        try {
+            using var route=new Socket(destination.AddressFamily,SocketType.Dgram,ProtocolType.Udp);
+            route.Connect(new IPEndPoint(destination,443));
+            return (route.LocalEndPoint as IPEndPoint)?.Address;
+        }
+        catch(SocketException) { return null; }
+    }
+    public static bool IsAssignedLocalAddress(IPAddress address) =>
+        address.AddressFamily==AddressFamily.InterNetwork && !IPAddress.IsLoopback(address) &&
+        NetworkInterface.GetAllNetworkInterfaces().Any(adapter=>adapter.OperationalStatus==OperationalStatus.Up &&
+            adapter.GetIPProperties().UnicastAddresses.Any(item=>item.Address.Equals(address)));
     public void Dispose() { if(Interlocked.Exchange(ref _disposed,1)!=0) return; _stop.Cancel(); _listener.Stop(); _certificate.Dispose(); _stop.Dispose(); }
 }
 
@@ -113,20 +142,51 @@ public sealed class NativeRoomConnection : IDisposable
     public static async Task<NativeRoomConnection> JoinAsync(string code,CancellationToken token)
     {
         var invite=NativeRoomInvite.Parse(code);
-        using var deadline=CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromSeconds(25));
-        var client=new TcpClient(); SslStream? stream=null;
+        if(invite.IPv6Address is not { } ipv6 || !Socket.OSSupportsIPv6)
+            return await JoinEndpointAsync(invite,invite.Address,25,token);
+
+        // Prefer a known public IPv4 route. Otherwise try IPv6 before the LAN fallback.
+        var preferIPv4=RouterPortMapping.IsPublicIpv4(invite.Address);
+        var first=preferIPv4 ? invite.Address : ipv6;
+        var second=preferIPv4 ? ipv6 : invite.Address;
+        try { return await JoinEndpointAsync(invite,first,8,token); }
+        catch(Exception ex) when(!token.IsCancellationRequested && ex is TimeoutException or AuthenticationException or NativeRoomRouteException) {
+            return await JoinEndpointAsync(invite,second,10,token);
+        }
+    }
+
+    private static async Task<NativeRoomConnection> JoinEndpointAsync(NativeRoomInvite invite,IPAddress address,int seconds,CancellationToken token)
+    {
+        using var deadline=CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromSeconds(seconds));
+        var client=new TcpClient(address.AddressFamily); SslStream? stream=null;
+        bool authenticated=false;
         try {
-            await client.ConnectAsync(invite.Address,invite.Port,deadline.Token);
+            await client.ConnectAsync(address,invite.Port,deadline.Token);
             stream=new SslStream(client.GetStream(),false,(_,certificate,_,_)=>certificate is not null && CryptographicOperations.FixedTimeEquals(SHA256.HashData(certificate.GetRawCertData()),invite.Fingerprint));
             await stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost="Glimpse native", EnabledSslProtocols=SslProtocols.Tls12|SslProtocols.Tls13 },deadline.Token);
+            authenticated=true;
             await stream.WriteAsync(invite.Secret,deadline.Token);
             var acknowledgement=new byte[1]; await stream.ReadExactlyAsync(acknowledgement,deadline.Token);
             if(acknowledgement[0]==2) throw new IOException("A sala está cheia. O limite é de oito pessoas, incluindo o anfitrião.");
             if(acknowledgement[0]!=1) throw new InvalidDataException("A sala não confirmou a entrada.");
             return new(client,stream);
         }
-        catch { stream?.Dispose(); client.Dispose(); if(!token.IsCancellationRequested && deadline.IsCancellationRequested) throw new TimeoutException("O PC anfitrião não respondeu. Confira o endereço público, a porta do roteador e o firewall. A operadora pode bloquear conexões de entrada (CGNAT)."); throw; }
+        catch(Exception ex) {
+            stream?.Dispose(); client.Dispose();
+            if(token.IsCancellationRequested) throw;
+            if(!authenticated && (ex is SocketException || deadline.IsCancellationRequested)) {
+                var message=$"O anfitrião não respondeu na porta TCP {invite.Port}. Peça um convite da sala aberta agora. Se usarem rede local ou VPN, conectem-se à mesma rede. Pela internet direta, confira o encaminhamento da porta no roteador e a permissão do Glimpse no firewall.";
+                if(deadline.IsCancellationRequested || ex is SocketException { SocketErrorCode:SocketError.TimedOut }) throw new TimeoutException(message,ex);
+                throw new NativeRoomRouteException(message,ex);
+            }
+            if(ex is AuthenticationException) throw new AuthenticationException("Não foi possível confirmar a identidade da sala. Peça ao anfitrião para copiar o convite da sala aberta agora.",ex);
+            if(!authenticated && ex is IOException) throw new NativeRoomRouteException("A conexão foi interrompida antes de confirmar a sala. Peça o convite da sala aberta agora.",ex);
+            if(ex is EndOfStreamException) throw new IOException("O anfitrião encerrou a tentativa de entrada. Confira se a sala segue aberta e peça um novo convite.",ex);
+            if(deadline.IsCancellationRequested) throw new TimeoutException("O anfitrião recebeu a conexão, mas não confirmou a entrada a tempo.",ex);
+            throw;
+        }
     }
+    private sealed class NativeRoomRouteException(string message,Exception inner) : IOException(message,inner);
     public bool TrySendVideo(byte[] frame) => Queue(1,frame);
     public void NotifySharingStopped() => Queue(2,Array.Empty<byte>());
     public void NotifySharingStarted() => Queue(4,Array.Empty<byte>());

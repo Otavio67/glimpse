@@ -8,13 +8,13 @@ public partial class RoomSetupDialog : Window
 {
     private readonly MainViewModel _viewModel;
     private readonly bool _host;
-    public RoomSetupDialog(bool host,MainViewModel viewModel)
+    public RoomSetupDialog(bool host,MainViewModel viewModel,bool joinFromLink=false)
     {
         InitializeComponent();
         _host=host; _viewModel=viewModel; DataContext=viewModel;
         Title=host ? "Hospedar sala" : "Entrar na sala de um amigo";
         Heading.Text=Title;
-        Description.Text=host ? "Crie seu espaço e envie o convite para seus amigos." : "Cole o convite que seu amigo enviou para entrar na sala.";
+        Description.Text=host ? "Crie seu espaço e envie o link para seus amigos." : "Cole o link ou o código que seu amigo enviou.";
         HostPanel.Visibility=host ? Visibility.Visible : Visibility.Collapsed;
         JoinPanel.Visibility=host ? Visibility.Collapsed : Visibility.Visible;
         CloseButton.Content=viewModel.IsInRoom ? "Concluir" : "Voltar";
@@ -22,7 +22,13 @@ public partial class RoomSetupDialog : Window
         MaxWidth=Math.Max(320,SystemParameters.WorkArea.Width-40);
         viewModel.PropertyChanged+=SessionChanged;
         Loaded+=(_,_)=>{ if(!host) InviteInput.Focus(); };
+        if(joinFromLink) ContentRendered+=JoinFromLink;
         Closed+=(_,_)=>{ viewModel.PropertyChanged-=SessionChanged; viewModel.CancelRoomSetup(); };
+    }
+    private void JoinFromLink(object? sender,EventArgs e)
+    {
+        ContentRendered-=JoinFromLink;
+        if(_viewModel.JoinRoomCommand.CanExecute(null)) _viewModel.JoinRoomCommand.Execute(null);
     }
     private void SessionChanged(object? sender,PropertyChangedEventArgs e)
     {

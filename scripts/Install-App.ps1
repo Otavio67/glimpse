@@ -53,6 +53,16 @@ try {
     @('@echo off','setlocal',('start "Glimpse" /D "%~dp0versions\' + (Split-Path -Leaf $version) + '" "%~dp0' + $relative + '"')) | Set-Content -LiteralPath $temporary -Encoding ASCII
     Move-Item -LiteralPath $temporary -Destination $launcher -Force
     if (-not $NoShortcuts) {
+        # Register links for this user, pointing at the version that passed verification.
+        $protocol = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Classes\glimpse')
+        try {
+            $protocol.SetValue('', 'URL:Glimpse Room')
+            $protocol.SetValue('URL Protocol', '')
+            $command = $protocol.CreateSubKey('shell\open\command')
+            try { $command.SetValue('', ('"{0}" "%1"' -f $verificationInfo.FileName)) }
+            finally { $command.Dispose() }
+        }
+        finally { $protocol.Dispose() }
         $shell = New-Object -ComObject WScript.Shell
         foreach ($folder in @([Environment]::GetFolderPath('Desktop'),[Environment]::GetFolderPath('Programs'))) {
             $shortcut = $shell.CreateShortcut((Join-Path $folder 'Glimpse.lnk'))

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Entrar na sala · Glimpse</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 1rem; min-height: 100vh; display: grid; place-items: center;
+    background: #111521; color: #eef1fa; font: 1rem/1.6 system-ui, sans-serif; }
+  main { width: min(100%, 32rem); padding: clamp(1.25rem, 5vw, 2.5rem); border: 1px solid #343b51;
+    border-radius: 1rem; background: #1a2030; }
+  h1 { margin: 0; line-height: 1.25; }
+  p { color: #c3cbdf; }
+  a { color: #cbbfff; }
+  .button { display: inline-block; margin-bottom: 1rem; padding: .65rem 1rem; border-radius: .5rem;
+    color: #191329; background: #b8a7ff; text-decoration: none; font-weight: 650; }
+  input { display: block; width: 100%; padding: .6rem; border: 1px solid #6f7893; border-radius: .35rem;
+    color: #eef1fa; background: #111521; font: inherit; }
+</style>
+<main>
+  <h1>Entrar na sala do Glimpse</h1>
+  <p id="missing">Abra o link completo que o anfitrião enviou.</p>
+  <div id="invite" hidden>
+    <p>Abra o aplicativo para se conectar à sala.</p>
+    <a id="open" class="button">Abrir Glimpse</a>
+    <label for="code">Se preferir, cole este código no aplicativo</label>
+    <input id="code" readonly spellcheck="false">
+  </div>
+  <p>Primeira vez aqui? <a href="https://github.com/Otavio67/glimpse/releases">Baixe o Glimpse</a> e execute <strong>Instalar Glimpse.cmd</strong> para habilitar a abertura por link.</p>
+</main>
+<script>
+  const code = location.hash.slice(1);
+  if (/^GLN-(?:[A-Za-z0-9_-]{94}|[A-Za-z0-9_-]{115})$/.test(code)) {
+    document.getElementById('open').href = 'glimpse://join/' + code;
+    document.getElementById('code').value = code;
+    document.getElementById('invite').hidden = false;
+    document.getElementById('missing').hidden = true;
+  }
+</script>
+</html>

@@ -48,6 +48,11 @@ public partial class MainWindow : Window
         var dialog=new RoomSetupDialog(host,_vm) { Owner=this };
         dialog.ShowDialog();
     }
+    internal void OpenRoomInvite(string code) {
+        _vm.RemoteText=code;
+        var dialog=new RoomSetupDialog(false,_vm,true) { Owner=this };
+        dialog.ShowDialog();
+    }
     private ShareRequest? ChooseShareSource(VideoQuality currentQuality) {
         var dialog=new ShareSourceDialog(currentQuality) { Owner=this };
         return dialog.ShowDialog()==true ? dialog.Request : null;

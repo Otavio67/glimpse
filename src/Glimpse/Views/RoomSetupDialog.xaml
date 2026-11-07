@@ -18,6 +18,9 @@
               <TextBlock Text="PORTA TCP" FontSize="10" Foreground="#A8B2C5" Margin="0,12,0,6"/>
               <TextBox Text="{Binding HostPort, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Porta da sala"/>
               <CheckBox Content="Tentar abrir a porta no roteador automaticamente" IsChecked="{Binding AutoMapPort}" Foreground="#CFD9E6" Margin="0,12,0,0"/>
+              <TextBlock Text="IPv4 DE REDE COMPARTILHADA (OPCIONAL)" FontSize="10" Foreground="#A8B2C5" Margin="0,14,0,6"/>
+              <TextBox Text="{Binding SharedNetworkAddress, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="IPv4 de rede compartilhada deste PC"/>
+              <TextBlock Text="Use o IPv4 deste PC na rede local, Radmin ou Hamachi. Seu amigo precisa estar na mesma rede. Ao preencher, deixe o IPv4 público em branco. A abertura automática de porta será ignorada." TextWrapping="Wrap" Foreground="#A8B2C5" Margin="0,6,0,0"/>
             </StackPanel>
           </Expander>
           <Button Content="Criar sala" Command="{Binding CreateRoomCommand}" Background="#A999FF" Foreground="#1C1738" HorizontalAlignment="Left" Margin="0,18,0,0" AutomationProperties.Name="Criar sala"/>
@@ -25,12 +28,15 @@
         <StackPanel Visibility="{Binding InvitationVisibility}">
           <TextBlock Text="CONVITE DA SUA SALA" FontSize="10" Foreground="#A8B2C5" Margin="0,0,0,7"/>
           <TextBox Text="{Binding LocalText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MinHeight="65" MaxHeight="130" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Código da sua sala"/>
-          <Button Content="Copiar convite" Command="{Binding CopyCommand}" HorizontalAlignment="Left" Margin="0,12,0,0"/>
+          <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+            <Button Content="Copiar link da sala" Command="{Binding CopyInviteLinkCommand}" Visibility="{Binding InviteLinkVisibility}" Background="#A999FF" Foreground="#1C1738" Margin="0,0,8,0"/>
+            <Button Content="Copiar código" Command="{Binding CopyCommand}"/>
+          </StackPanel>
           <TextBlock Text="{Binding NetworkDetails}" TextWrapping="Wrap" Foreground="#A8B2C5" FontSize="12" LineHeight="19" Margin="0,14,0,0"/>
         </StackPanel>
       </StackPanel>
       <StackPanel x:Name="JoinPanel">
-        <TextBlock Text="CONVITE DA SALA DO SEU AMIGO" FontSize="10" Foreground="#A8B2C5" Margin="0,0,0,7"/>
+        <TextBlock Text="LINK OU CÓDIGO DA SALA DO SEU AMIGO" FontSize="10" Foreground="#A8B2C5" Margin="0,0,0,7"/>
         <TextBox x:Name="InviteInput" Text="{Binding RemoteText, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" MinHeight="80" MaxHeight="160" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Digite o código da sala"/>
         <Button Content="Entrar na sala" Command="{Binding JoinRoomCommand}" Background="#A999FF" Foreground="#1C1738" HorizontalAlignment="Left" Margin="0,16,0,0" AutomationProperties.Name="Entrar na sala"/>
       </StackPanel>

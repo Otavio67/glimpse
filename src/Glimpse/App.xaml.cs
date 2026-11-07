@@ -5,7 +5,7 @@ public partial class App : Application
 {
     protected override void OnStartup(StartupEventArgs e)
     {
-        if(e.Args.Contains("--verify-installation")) {
+        if(e.Args is ["--verify-installation"]) {
             ShutdownMode=ShutdownMode.OnExplicitShutdown;
             try {
                 // Load the actual WPF view and bundled libraries without showing a window or capturing a screen.
@@ -41,5 +41,7 @@ public partial class App : Application
         MainWindow=main;
         ShutdownMode=ShutdownMode.OnLastWindowClose;
         main.Show();
+        if(e.Args is [var argument] && Networking.RoomInviteLink.FromActivation(argument) is { } code)
+            main.Dispatcher.BeginInvoke(() => main.OpenRoomInvite(code));
     }
 }

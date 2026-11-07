@@ -1,9 +1,9 @@
 # Instalar o Glimpse no Windows
 
-1. Baixe [Glimpse-Windows-x64.zip completo](https://github.com/Otavio67/glimpse/releases/download/v0.2.6-preview/Glimpse-Windows-x64.zip).
+1. Baixe [Glimpse-Windows-x64.zip completo](https://github.com/Otavio67/glimpse/releases/download/v0.2.7-preview/Glimpse-Windows-x64.zip).
 2. Extraia o ZIP inteiro para uma pasta. Não execute de dentro do ZIP.
 3. Dê dois cliques em **Abrir Glimpse.cmd**. Mantenha os arquivos e pastas juntos.
-4. Opcional: execute **Instalar Glimpse.cmd** para copiar o aplicativo e criar atalhos **Glimpse** na Área de Trabalho e no menu Iniciar, sem downloads adicionais.
+4. Execute **Instalar Glimpse.cmd** para abrir convites direto do navegador e criar atalhos **Glimpse** na Área de Trabalho e no menu Iniciar, sem downloads adicionais. Na versão portátil, cole o link recebido em **Entrar na sala de um amigo**.
 5. Na primeira abertura, escolha seu nome e uma foto. Você pode usar um dos quatro robôs ou importar uma foto do computador; nas próximas aberturas o perfil já estará salvo.
 
 Se o repositório estiver privado, o GitHub só permite baixar a versão às pessoas com acesso ao repositório.

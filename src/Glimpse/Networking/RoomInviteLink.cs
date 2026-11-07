@@ -23,6 +23,7 @@ public static class RoomInviteLink
 
     private static string ReadCode(string code)
     {
+        if(ShortRoomInvite.IsCode(code)) return code;
         if(code.Length is not (98 or 119 or 168) || !code.StartsWith("GLN-",StringComparison.OrdinalIgnoreCase) ||
             !code.All(c=>char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
             throw new InvalidDataException("O link da sala está incompleto. Peça ao anfitrião para copiá-lo novamente.");

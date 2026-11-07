@@ -14,21 +14,21 @@ using System.Threading.Channels;
 namespace Glimpse.Networking;
 
 public sealed record NativeRoomInvite(IPAddress Address, int Port, byte[] Fingerprint, byte[] Secret,
-    IPAddress? IPv6Address=null, IPAddress? LanAddress=null, byte[]? RelayId=null)
+    IPAddress? IPv6Address=null, IPAddress? LanAddress=null, byte[]? RelayId=null, bool UseIce=false)
 {
     private const int ExtendedSize=123;
     public string Encode()
     {
         if(Address.AddressFamily!=AddressFamily.InterNetwork || Port is <1 or >65535 || Fingerprint.Length!=32 || Secret.Length!=32) throw new InvalidDataException("Dados de convite inválidos.");
         if(IPv6Address is not null && !IsValidIPv6(IPv6Address)) throw new InvalidDataException("Endereço IPv6 inválido no convite.");
-        if(LanAddress is not null && !IsValidIPv4(LanAddress) || RelayId is not null && RelayId.Length!=32)
+        if(LanAddress is not null && !IsValidIPv4(LanAddress) || RelayId is not null && RelayId.Length!=32 || UseIce && RelayId is null)
             throw new InvalidDataException("Rota alternativa inválida no convite.");
         bool extended=LanAddress is not null || RelayId is not null;
         var data=new byte[extended ? ExtendedSize : IPv6Address is null ? 70 : 86]; Address.GetAddressBytes().CopyTo(data,0);
         BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(4), (ushort)Port); Fingerprint.CopyTo(data,6); Secret.CopyTo(data,38);
         IPv6Address?.GetAddressBytes().CopyTo(data,70);
         if(extended) {
-            data[86]=(byte)((IPv6Address is null ? 0 : 1) | (LanAddress is null ? 0 : 2) | (RelayId is null ? 0 : 4));
+            data[86]=(byte)((IPv6Address is null ? 0 : 1) | (LanAddress is null ? 0 : 2) | (RelayId is null ? 0 : 4) | (UseIce ? 8 : 0));
             LanAddress?.GetAddressBytes().CopyTo(data,87);
             RelayId?.CopyTo(data,91);
         }
@@ -46,13 +46,13 @@ public sealed record NativeRoomInvite(IPAddress Address, int Port, byte[] Finger
         var address=new IPAddress(data.AsSpan(0,4));
         if(port==0 || !IsValidIPv4(address)) throw new InvalidDataException("Endereço ou porta inválidos no convite.");
         int flags=data.Length==ExtendedSize ? data[86] : data.Length==86 ? 1 : 0;
-        if((flags&~7)!=0) throw new InvalidDataException("Rotas inválidas no convite.");
+        if((flags&~15)!=0 || (flags&12)==8) throw new InvalidDataException("Rotas inválidas no convite.");
         var ipv6=(flags&1)!=0 ? new IPAddress(data.AsSpan(70,16)) : null;
         if(ipv6 is not null && !IsValidIPv6(ipv6)) throw new InvalidDataException("Endereço IPv6 inválido no convite.");
         var lan=(flags&2)!=0 ? new IPAddress(data.AsSpan(87,4)) : null;
         if(lan is not null && !IsValidIPv4(lan)) throw new InvalidDataException("Endereço de rede local inválido no convite.");
         var relay=(flags&4)!=0 ? data.AsSpan(91,32).ToArray() : null;
-        return new(address,port,data.AsSpan(6,32).ToArray(),data.AsSpan(38,32).ToArray(),ipv6,lan,relay);
+        return new(address,port,data.AsSpan(6,32).ToArray(),data.AsSpan(38,32).ToArray(),ipv6,lan,relay,(flags&8)!=0);
     }
     private static bool IsValidIPv4(IPAddress address) => address.AddressFamily==AddressFamily.InterNetwork &&
         address.GetAddressBytes()[0] is >0 and <224;
@@ -88,6 +88,7 @@ public sealed class NativeRoomHost : IDisposable
     }
     public string Invite(IPAddress address, int? publicPort=null, IPAddress? ipv6=null, IPAddress? lan=null, byte[]? relayId=null) =>
         new NativeRoomInvite(address,publicPort??Port,SHA256.HashData(_certificate.RawData),_secret,ipv6,lan,relayId).Encode();
+    internal byte[] IceKey() => IceRoomStream.Key(_secret);
     public async Task<NativeRoomConnection> AcceptAsync(CancellationToken token,Func<bool>? canJoin=null)
     {
         using var lifetime=CancellationTokenSource.CreateLinkedTokenSource(token,_token);
@@ -167,8 +168,9 @@ public sealed class NativeRoomConnection : IDisposable
     public event Action<int>? ParticipantCountChanged;
     public event Action<string>? Closed;
     public bool IsConnected => Volatile.Read(ref _disposed)==0;
-    public bool UsesRelay => _client is null;
-    internal NativeRoomConnection(TcpClient? client,SslStream stream) { _client=client; if(client is not null) client.NoDelay=true; _stream=stream; _token=_stop.Token; }
+    public bool UsesRelay { get; }
+    public bool UsesIce { get; }
+    internal NativeRoomConnection(TcpClient? client,SslStream stream,bool relay=false,bool ice=false) { _client=client; if(client is not null) client.NoDelay=true; _stream=stream; _token=_stop.Token; UsesRelay=relay; UsesIce=ice; }
     public static async Task<NativeRoomConnection> JoinAsync(string code,CancellationToken token,Action? tryingRelay=null)
     {
         var invite=NativeRoomInvite.Parse(code);
@@ -188,8 +190,27 @@ public sealed class NativeRoomConnection : IDisposable
             catch(Exception ex) when(!token.IsCancellationRequested && ex is TimeoutException or AuthenticationException or NativeRoomRouteException) { directFailure=ex; }
         }
         if(relay is null) ExceptionDispatchInfo.Throw(directFailure!);
+        if(invite.UseIce) {
+            try { return await JoinIceAsync(invite,relay!,token); }
+            catch(Exception ex) when(!token.IsCancellationRequested && ex is (IOException or HttpRequestException or WebSocketException or AuthenticationException or OperationCanceledException or InvalidOperationException or SocketException) and not RoomFullException) { }
+        }
         tryingRelay?.Invoke();
         return await JoinRelayAsync(invite,relay!,token);
+    }
+
+    private static async Task<NativeRoomConnection> JoinIceAsync(NativeRoomInvite invite,Uri endpoint,CancellationToken token)
+    {
+        using var deadline=CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        using var signaling=await RoomRelay.OpenAsync(endpoint,invite.RelayId!,null,deadline.Token,ice:true);
+        var transport=await IceRoomStream.ConnectAsync(signaling,true,IceRoomStream.Key(invite.Secret),deadline.Token);
+        var stream=CreateGuestTls(transport,invite);
+        try {
+            await AuthenticateGuestAsync(stream,deadline.Token);
+            await ConfirmEntryAsync(stream,invite,deadline.Token);
+            return new NativeRoomConnection(null,stream,ice:true);
+        }
+        catch { stream.Dispose(); throw; }
     }
 
     private static async Task<NativeRoomConnection> JoinEndpointAsync(NativeRoomInvite invite,IPAddress address,int seconds,CancellationToken token)
@@ -251,7 +272,7 @@ public sealed class NativeRoomConnection : IDisposable
             stream=CreateGuestTls(new RelayStream(socket),invite);
             await AuthenticateGuestAsync(stream,deadline.Token);
             await ConfirmEntryAsync(stream,invite,deadline.Token);
-            var connection=new NativeRoomConnection(null,stream);
+            var connection=new NativeRoomConnection(null,stream,relay:true);
             socket=null; stream=null;
             return connection;
         }

@@ -1,14 +1,28 @@
 import { DurableObject } from 'cloudflare:workers';
 
 const route = /^\/v1\/rooms\/([a-f0-9]{64})\/(host|guest)$/;
+const inviteRoute = /^\/v2\/invites\/([a-f0-9]{64})$/;
 const hostKey = /^Bearer ([a-f0-9]{64})$/;
 const maxPairs = 8;
 const maxPacket = 32768;
 
 export default {
   async fetch(request, env) {
-    const path = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const path = url.pathname;
     if (request.method === 'GET' && path === '/health') return new Response('glimpse-relay-v1');
+    if (request.method === 'GET' && path === '/v2/health') return new Response('glimpse-relay-v2');
+    const invite = inviteRoute.exec(path);
+    if (request.method === 'GET' && invite) {
+      const headers = new Headers();
+      if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+        const sealed = request.headers.get('X-Glimpse-Invite');
+        if (!sealed || !/^[A-Za-z0-9_-]{80,512}$/.test(sealed)) return new Response(null, { status: 400 });
+        headers.set('Upgrade', 'websocket');
+        headers.set('X-Glimpse-Invite', sealed);
+      }
+      return env.ROOMS.get(env.ROOMS.idFromName('invite:' + invite[1])).fetch(request.url, { headers });
+    }
     const match = route.exec(path);
     if (request.method !== 'GET' || !match) return new Response(null, { status: 404 });
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response(null, { status: 426 });
@@ -29,7 +43,10 @@ export default {
 
 export class RelayRoom extends DurableObject {
   fetch(request) {
-    const isHost = new URL(request.url).pathname.endsWith('/host');
+    const url = new URL(request.url);
+    if (inviteRoute.test(url.pathname)) return this.invite(request);
+    const isHost = url.pathname.endsWith('/host');
+    const ice = url.searchParams.get('ice') === '1';
     const sockets = this.ctx.getWebSockets().filter(socket => socket.readyState === 1);
     const waiting = sockets.find(socket => socket.deserializeAttachment()?.waiting);
     if (isHost && waiting) return new Response(null, { status: 409 });
@@ -43,11 +60,26 @@ export class RelayRoom extends DurableObject {
       server.send('waiting');
     } else {
       const pair = crypto.randomUUID();
-      server.serializeAttachment({ pair });
-      waiting.serializeAttachment({ pair });
-      try { waiting.send('ready'); }
+      server.serializeAttachment({ pair, ice });
+      waiting.serializeAttachment({ pair, ice });
+      try { waiting.send(ice ? 'ice' : 'ready'); }
       catch { server.close(1011, 'Host disconnected'); }
     }
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  invite(request) {
+    const active = this.ctx.getWebSockets().find(socket => socket.readyState === 1);
+    const sealed = request.headers.get('X-Glimpse-Invite');
+    if (!sealed) {
+      const value = active?.deserializeAttachment()?.invite;
+      return new Response(value ?? null, { status: value ? 200 : 404, headers: { 'Cache-Control': 'no-store' } });
+    }
+    if (active) return new Response(null, { status: 409 });
+    const [client, server] = Object.values(new WebSocketPair());
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ invite: sealed });
+    server.send('waiting');
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -60,7 +92,9 @@ export class RelayRoom extends DurableObject {
 
   webSocketMessage(socket, data) {
     const peer = this.peer(socket);
-    if (!peer || !(data instanceof ArrayBuffer) || data.byteLength > maxPacket) {
+    const ice = socket.deserializeAttachment()?.ice;
+    const valid = ice ? typeof data === 'string' && data.length <= 16384 : data instanceof ArrayBuffer && data.byteLength <= maxPacket;
+    if (!peer || !valid) {
       socket.close(1008, 'Invalid relay packet');
       return;
     }

@@ -32,7 +32,7 @@
 </main>
 <script>
   const code = location.hash.slice(1);
-  if (/^GLN-(?:[A-Za-z0-9_-]{94}|[A-Za-z0-9_-]{115}|[A-Za-z0-9_-]{164})$/.test(code)) {
+  if (/^(?:[A-Za-z0-9_-]{16}|GLN-(?:[A-Za-z0-9_-]{94}|[A-Za-z0-9_-]{115}|[A-Za-z0-9_-]{164}))$/.test(code)) {
     document.getElementById('open').href = 'glimpse://join/' + code;
     document.getElementById('code').value = code;
     document.getElementById('invite').hidden = false;

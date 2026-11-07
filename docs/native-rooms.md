@@ -12,7 +12,7 @@ A imagem é ajustada à área disponível no aplicativo, preservando a proporç�
 
 A sala aceita até **8 pessoas: anfitrião + 7 convidados**. Todos usam o mesmo convite `GLN-...`. A saída de um convidado libera a vaga e mantém a sala disponível para outras entradas. A saída do anfitrião encerra a sala para todos.
 
-Os primeiros caracteres podem se repetir entre salas hospedadas no mesmo endereço e porta. Cada sala nova gera um certificado e uma chave novos. Copie o link da sala que está aberta agora.
+Cada sala nova gera um certificado e uma chave novos. Com o serviço disponível, o anfitrião vê um código de 16 caracteres no lugar do convite completo. O código vale enquanto a sala está aberta. Convites completos anteriores continuam aceitos e são usados quando o serviço de convites curtos está indisponível.
 
 O anfitrião usa **Copiar link da sala**. O convidado abre o link no navegador e clica em **Abrir Glimpse**. Para o Windows reconhecer o link, execute **Instalar Glimpse.cmd** uma vez. Na versão portátil, cole o link ou o código em **Entrar na sala de um amigo**. O site abre o aplicativo. O convite fica no fragmento do endereço e o navegador não recebe o vídeo.
 
@@ -26,7 +26,7 @@ O anfitrião usa **Copiar link da sala**. O convidado abre o link no navegador e
 4. Permita conexões de entrada do Glimpse nessa porta no Firewall do Windows. O aplicativo não altera regras do firewall automaticamente.
 5. Crie a sala, envie o convite por um canal confiável e mantenha o PC ligado. Os convidados precisam apenas colar o convite e entrar; não precisam abrir portas no próprio roteador.
 
-Se o Windows tiver uma rota com IPv6 global, o Glimpse inclui esse endereço no mesmo convite. O convidado tenta as rotas disponíveis sem digitar IP. A rota IPv6 também precisa aceitar conexões de entrada no roteador e no firewall. Use uma versão atual em ambos os PCs para convites que incluem IPv6.
+Se o Windows tiver uma rota com IPv6 global, o Glimpse inclui esse endereço no convite. Quando as rotas TCP diretas falham, os dois aplicativos também podem negociar uma rota UDP direta via ICE, com descoberta de endereços pelo STUN público da Cloudflare. Use a versão atual em ambos os PCs para o código curto e o ICE.
 
 Quando todas as rotas diretas falham, um convite com rota reserva tenta o retransmissor. Um endereço privado retornado pelo roteador pode indicar NAT duplo ou CGNAT. O retransmissor usa conexões de saída por HTTPS/WebSocket dos dois PCs, portanto o anfitrião pode aceitar convidados mesmo sem encaminhamento de porta.
 
@@ -35,6 +35,8 @@ O diagnóstico de abertura da porta **não comprova acesso externo**. A validaç
 ## Rota reserva
 
 Ao criar a sala, o Glimpse abre uma conexão de espera com o retransmissor, quando disponível no pacote. Só passam dados da sala por essa conexão quando um convidado esgota as rotas diretas e recorre à reserva. O servidor apenas encaminha os bytes TLS entre o convidado e o anfitrião. O convidado confere a impressão do certificado do anfitrião antes de enviar a chave da sala. A criptografia do vídeo termina nos dois Glimpses.
+
+O serviço de convite curto guarda apenas o convite criptografado enquanto o anfitrião está conectado. O código no fragmento da URL permite abrir e verificar o convite. Na tentativa de conexão ICE, o serviço encaminha apenas a sinalização criptografada. Se a negociação funcionar, o vídeo segue diretamente entre os PCs.
 
 O servidor é um Cloudflare Worker com Durable Objects, em `relay/`. Para preparar um pacote com o servidor ativo, informe `-RelayUrl wss://<servidor>` a `scripts/Build-Package.ps1`. O pacote contém o endereço do serviço, que é o mesmo para ambos os PCs. O teste `Glimpse.NativeRooms --relay --video` usa o endereço de `GLIMPSE_RELAY_URL`, força uma rota direta indisponível e exercita a entrada e a transmissão entre convidados. O [plano gratuito](https://developers.cloudflare.com/durable-objects/platform/pricing/) tem cotas e pode recusar novas conexões quando são atingidas.
 

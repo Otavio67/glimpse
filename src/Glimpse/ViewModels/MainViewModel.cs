@@ -31,6 +31,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private NativeRoomConnection? _nativeConnection;
     private RouterPortMapping? _routerMapping;
     private RelayHost? _relayHost;
+    private ShortRoomInvite? _shortInvite;
     private WindowsCaptureSource? _capture;
     private H264Encoder? _encoder;
     private H264Decoder? _decoder;
@@ -95,7 +96,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ApplyAnswerCommand { get; }
     public ICommand CopyCommand { get; }
     public ICommand CopyInviteLinkCommand { get; }
-    public Visibility InviteLinkVisibility => LocalText.StartsWith("GLN-",StringComparison.Ordinal) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility InviteLinkVisibility => LocalText.StartsWith("GLN-",StringComparison.Ordinal) || ShortRoomInvite.IsCode(LocalText) ? Visibility.Visible : Visibility.Collapsed;
     public ICommand ShareCommand { get; }
     public ICommand StopCommand { get; }
     public ICommand DisconnectCommand { get; }
@@ -122,7 +123,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         });
         JoinRoomCommand=new AsyncCommand(async()=>{
             var code=RoomInviteLink.Unwrap(RemoteText.Trim()); if(code.Length==0)throw new InvalidOperationException("Cole o link ou código da sala.");
-            if(code.StartsWith("GLN-",StringComparison.OrdinalIgnoreCase)) { await JoinNativeRoomAsync(code); return; }
+            if(code.StartsWith("GLN-",StringComparison.OrdinalIgnoreCase) || ShortRoomInvite.IsCode(code)) { await JoinNativeRoomAsync(code); return; }
             if (UseInternetRooms) { await OpenInternetRoomAsync(code); return; }
             Reset(); _sender=false; CreatePeer(false); Status="Entrando na sala...";
             var version=_sessionVersion;
@@ -176,10 +177,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             }
             if(version!=_sessionVersion) return;
             string relayDetail="";
-            if(sharedAddress is null && RoomRelay.Endpoint() is { } relayEndpoint) {
+            var relayEndpoint=sharedAddress is null ? RoomRelay.Endpoint() : null;
+            if(relayEndpoint is not null) {
                 Status="Preparando a rota reserva da sala...";
                 try {
-                    var relay=await RelayHost.StartAsync(relayEndpoint,host.Port,token);
+                    var relay=await RelayHost.StartAsync(relayEndpoint,host.Port,token,host.IceKey());
                     if(version!=_sessionVersion) { relay.Dispose(); return; }
                     _relayHost=relay;
                     relayDetail=" Se as rotas diretas falharem, o link tentará o retransmissor.";
@@ -190,7 +192,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             }
             if(version!=_sessionVersion) return;
             bool internet=advertised is not null || ipv6 is not null;
-            LocalText=host.Invite(advertised??local,ipv6:ipv6,lan:advertised is not null && !advertised.Equals(local) ? local : null,relayId:_relayHost?.Id);
+            var invite=host.Invite(advertised??local,ipv6:ipv6,lan:advertised is not null && !advertised.Equals(local) ? local : null,relayId:_relayHost?.Id);
+            if(_relayHost is not null && relayEndpoint is not null) {
+                try {
+                    var iceInvite=(NativeRoomInvite.Parse(invite) with { UseIce=true }).Encode();
+                    var registration=await ShortRoomInvite.PublishAsync(relayEndpoint,iceInvite,token);
+                    if(version!=_sessionVersion) { registration.Dispose(); return; }
+                    _shortInvite=registration;
+                }
+                catch(Exception ex) when(!token.IsCancellationRequested && ex is IOException or WebSocketException or HttpRequestException or OperationCanceledException) { }
+            }
+            if(version!=_sessionVersion) return;
+            LocalText=_shortInvite?.Code??invite;
             NetworkDetails=$"PC: {local} • TCP: {port}. "+(sharedAddress is not null
                 ? "Convite para a rede compartilhada. Seu amigo precisa estar na mesma rede local, Radmin ou Hamachi. Permita o Glimpse no firewall nessa rede."
                 : detail+(ipv6 is not null ? " O link também pode usar IPv6 entre redes compatíveis." : "")+
@@ -217,19 +230,25 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         catch(Exception) { OnUi(()=>{ if(version==_sessionVersion) { Reset(); Status="Não foi possível receber o convidado. Crie uma nova sala."; } }); }
     }
     private async Task JoinNativeRoomAsync(string code) {
-        NativeRoomInvite.Parse(code);
         Reset(); _sessionCancellation=new(); Notify(nameof(CanConfigureRoom));
         var version=_sessionVersion;
+        var token=_sessionCancellation.Token;
         Status="Conectando diretamente ao PC anfitrião...";
         try {
-            var connection=await NativeRoomConnection.JoinAsync(code,_sessionCancellation.Token,()=>OnUi(()=>{
+            if(ShortRoomInvite.IsCode(code)) {
+                Status="Localizando a sala...";
+                var endpoint=RoomRelay.Endpoint() ?? throw new IOException("Este pacote não tem acesso a convites curtos. Atualize o Glimpse pelo GitHub.");
+                code=await ShortRoomInvite.ResolveAsync(endpoint,code,token);
+                Status="Conectando ao PC anfitrião...";
+            }
+            var connection=await NativeRoomConnection.JoinAsync(code,token,()=>OnUi(()=>{
                 if(version==_sessionVersion) Status="A conexão direta falhou. Tentando pelo retransmissor...";
             }));
             if(version!=_sessionVersion) { connection.Dispose(); return; }
             BindNativeConnection(connection,version);
         }
         catch(Exception) when(version!=_sessionVersion) { }
-        catch(Exception ex) { Reset(); Status="Não foi possível conectar ao PC anfitrião."; throw new InvalidOperationException(ex is TimeoutException or IOException or AuthenticationException ? ex.Message : "Não foi possível entrar. Peça ao anfitrião para copiar novamente o convite da sala aberta agora.",ex); }
+        catch(Exception ex) { Reset(); Status="Não foi possível conectar ao PC anfitrião."; throw new InvalidOperationException(ex is TimeoutException or IOException or InvalidDataException or AuthenticationException ? ex.Message : "Não foi possível entrar. Peça ao anfitrião para copiar novamente o convite da sala aberta agora.",ex); }
     }
     private void BindNativeConnection(NativeRoomConnection connection,int version) {
         _nativeConnection=connection;
@@ -239,7 +258,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         connection.PresentationRevoked+=()=>OnUi(()=>{ if(version==_sessionVersion) { StopCapture(); Status="Outro participante assumiu a apresentação."; } });
         connection.ParticipantCountChanged+=count=>OnUi(()=>{ if(version==_sessionVersion) { _participantCount=count; Notify(nameof(ParticipantsText)); } });
         connection.Closed+=message=>OnUi(()=>{ if(version==_sessionVersion) { Reset(); Status=message; } });
-        Status=connection.UsesRelay ? "Conectado pelo retransmissor" : "Conectado diretamente ao outro PC";
+        Status=connection.UsesRelay ? "Conectado pelo retransmissor" : connection.UsesIce ? "Conectado diretamente por ICE" : "Conectado diretamente ao outro PC";
         IsInRoom=true;
         _=connection.RunAsync();
     }
@@ -357,7 +376,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private void ReportError(string text, int version) { if(version!=_sessionVersion) return; try { var dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Glimpse"); Directory.CreateDirectory(dir); File.AppendAllText(Path.Combine(dir,"errors.log"),$"{DateTimeOffset.Now:O} {text}{Environment.NewLine}"); } catch { } OnUi(()=>{ if(version==_sessionVersion) Status="Ocorreu um erro. Verifique o registro do aplicativo."; }); }
     private void OnUi(Action action) { if (_dispatcher.CheckAccess()) action(); else _dispatcher.BeginInvoke(action); }
     private void StopCapture() { bool local=IsSharingLocal; IsSharingLocal=false; _localPreviewBitmap=null; if(local) Frame=null; _captureCancellation?.Cancel(); _capture?.Dispose(); _encoder?.Dispose(); _capture=null; _encoder=null; _captureCancellation?.Dispose(); _captureCancellation=null; }
-    private void Reset() { _sessionVersion++; IsInRoom=false; _nativeConnection?.Dispose(); _nativeConnection=null; _nativeHub?.Dispose(); _nativeHub=null; _nativeHost?.Dispose(); _nativeHost=null; _relayHost?.Dispose(); _relayHost=null; _routerMapping?.Dispose(); _routerMapping=null; _internetRoom?.Dispose(); _internetRoom=null; _roomHost?.Dispose(); _roomHost=null; StopCapture(); _sessionCancellation?.Cancel(); StopDecoder(); _peer?.Dispose(); _peer=null; _sessionCancellation?.Dispose(); _sessionCancellation=null; Frame=null; LocalText=""; _participantCount=0; Notify(nameof(ParticipantsText)); Notify(nameof(CanConfigureRoom)); }
+    private void Reset() { _sessionVersion++; IsInRoom=false; _nativeConnection?.Dispose(); _nativeConnection=null; _nativeHub?.Dispose(); _nativeHub=null; _nativeHost?.Dispose(); _nativeHost=null; _relayHost?.Dispose(); _relayHost=null; _shortInvite?.Dispose(); _shortInvite=null; _routerMapping?.Dispose(); _routerMapping=null; _internetRoom?.Dispose(); _internetRoom=null; _roomHost?.Dispose(); _roomHost=null; StopCapture(); _sessionCancellation?.Cancel(); StopDecoder(); _peer?.Dispose(); _peer=null; _sessionCancellation?.Dispose(); _sessionCancellation=null; Frame=null; LocalText=""; _participantCount=0; Notify(nameof(ParticipantsText)); Notify(nameof(CanConfigureRoom)); }
     public void Dispose()=>Reset();
     private void Set<T>(ref T field,T value,[CallerMemberName]string? name=null) { if (!EqualityComparer<T>.Default.Equals(field,value)) {field=value;Notify(name);} }
     private void Notify([CallerMemberName]string? name=null)=>PropertyChanged?.Invoke(this,new PropertyChangedEventArgs(name));

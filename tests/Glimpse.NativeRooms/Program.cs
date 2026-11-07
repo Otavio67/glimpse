@@ -53,10 +53,22 @@ if(Socket.OSSupportsIPv6) {
     Console.WriteLine("IPv6 connection and direct LAN priority passed.");
 }
 
-using var relayHost=args.Contains("--relay")
-    ? await RelayHost.StartAsync(RoomRelay.Endpoint() ?? throw new Exception("Set GLIMPSE_RELAY_URL for --relay."),host.Port,deadline.Token)
+bool testIce=args.Contains("--ice");
+bool testIceFallback=args.Contains("--ice-fallback");
+var relayEndpoint=RoomRelay.Endpoint();
+using var relayHost=args.Contains("--relay") || testIce || testIceFallback
+    ? await RelayHost.StartAsync(relayEndpoint ?? throw new Exception("Set GLIMPSE_RELAY_URL for relay tests."),host.Port,deadline.Token,
+        testIceFallback ? new byte[32] : testIce ? host.IceKey() : null)
     : null;
 var remoteCode=relayHost is null ? code : host.Invite(IPAddress.Parse("127.0.0.2"),relayId:relayHost.Id);
+if(testIce || testIceFallback) {
+    remoteCode=(NativeRoomInvite.Parse(remoteCode) with { UseIce=true }).Encode();
+    using var shortInvite=await ShortRoomInvite.PublishAsync(relayEndpoint!,remoteCode,deadline.Token);
+    Require(shortInvite.Code.Length==16 && RoomInviteLink.FromActivation("glimpse://join/"+shortInvite.Code)==shortInvite.Code,"Short URL activation failed.");
+    Require(RoomInviteLink.Unwrap(RoomInviteLink.ToWebLink(shortInvite.Code))==shortInvite.Code,"Short web URL parsing failed.");
+    Require(await ShortRoomInvite.ResolveAsync(relayEndpoint!,shortInvite.Code,deadline.Token)==remoteCode,"Short invite resolution failed.");
+    Console.WriteLine("Short invite publication, URL parsing, and authenticated resolution passed.");
+}
 if(relayHost is not null) {
     var directCode=host.Invite(IPAddress.Parse("127.0.0.2"),lan:IPAddress.Loopback,relayId:relayHost.Id);
     Require(RoomInviteLink.Unwrap(RoomInviteLink.ToWebLink(directCode))==directCode,"Extended invite link did not round trip.");
@@ -71,12 +83,12 @@ if(relayHost is not null) {
 var connections=new List<NativeRoomConnection>(); var runs=new List<Task>();
 try {
     var first=await NativeRoomConnection.JoinAsync(remoteCode,deadline.Token); connections.Add(first);
-    Require(first.UsesRelay==(relayHost is not null),"The guest used the wrong transport.");
+    Require(first.UsesRelay==(relayHost is not null && !testIce) && first.UsesIce==testIce,"The guest used the wrong transport.");
     var firstFrames=new ConcurrentQueue<byte[]>(); first.VideoFrame+=frame=>firstFrames.Enqueue(frame);
     var firstRevoked=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); first.PresentationRevoked+=()=>firstRevoked.TrySetResult();
     runs.Add(first.RunAsync());
     var second=await NativeRoomConnection.JoinAsync(remoteCode,deadline.Token); connections.Add(second);
-    Require(second.UsesRelay==(relayHost is not null),"The second guest used the wrong transport.");
+    Require(second.UsesRelay==(relayHost is not null && !testIce) && second.UsesIce==testIce,"The second guest used the wrong transport.");
     var secondFrames=new ConcurrentQueue<byte[]>(); second.VideoFrame+=frame=>secondFrames.Enqueue(frame);
     runs.Add(second.RunAsync());
     await UntilAsync(()=>hub.ParticipantCount==3);

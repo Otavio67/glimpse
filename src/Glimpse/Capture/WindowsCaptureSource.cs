@@ -25,7 +25,10 @@ public sealed class WindowsCaptureSource : IDisposable
     private IDirect3DDevice? _device;
     private Direct3D11CaptureFramePool? _pool;
     private GraphicsCaptureSession? _session;
+    private GraphicsCaptureItem? _item;
     private Texture2D? _staging;
+    private readonly object _frameGate=new();
+    private int _completed, _disposed;
     private long _lastFrame;
     private int _width, _height, _fps;
     private readonly Channel<byte[]> _frames = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = true });
@@ -51,18 +54,36 @@ public sealed class WindowsCaptureSource : IDisposable
         _staging = new Texture2D(_d3d, new Texture2DDescription { Width = _width, Height = _height, MipLevels = 1, ArraySize = 1, Format = Format.B8G8R8A8_UNorm, SampleDescription = new SampleDescription(1, 0), Usage = ResourceUsage.Staging, BindFlags = BindFlags.None, CpuAccessFlags = CpuAccessFlags.Read });
         _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(_device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, item.Size);
         _session = _pool.CreateCaptureSession(item);
+        _item=item;
         _pool.FrameArrived += OnFrame;
-        item.Closed += (_, _) => { Error?.Invoke("A janela selecionada foi fechada."); _frames.Writer.TryComplete(); };
+        item.Closed += OnItemClosed;
         return true;
     }
     public void Start() => _session?.StartCapture();
+    public void Complete()
+    {
+        Interlocked.Exchange(ref _completed,1);
+        _frames.Writer.TryComplete();
+    }
+    private void OnItemClosed(GraphicsCaptureItem item,object args)
+    {
+        if(Volatile.Read(ref _completed)!=0) return;
+        Error?.Invoke("A fonte selecionada foi fechada.");
+        Complete();
+    }
     private void OnFrame(Direct3D11CaptureFramePool pool, object _)
+    {
+        lock(_frameGate) {
+            if(Volatile.Read(ref _completed)==0) ReadFrame(pool);
+        }
+    }
+    private void ReadFrame(Direct3D11CaptureFramePool pool)
     {
         try
         {
             using var frame = pool.TryGetNextFrame();
             if (frame is null) return;
-            if (frame.ContentSize.Width != _width || frame.ContentSize.Height != _height) { Error?.Invoke("O tamanho da fonte mudou. Pare o compartilhamento e selecione novamente."); _frames.Writer.TryComplete(); return; }
+            if (frame.ContentSize.Width != _width || frame.ContentSize.Height != _height) { Error?.Invoke("O tamanho da fonte mudou. Selecione a fonte novamente."); Complete(); return; }
             long now = Environment.TickCount64;
             if (now - _lastFrame < 1000 / _fps) return;
             _lastFrame = now;
@@ -74,7 +95,16 @@ public sealed class WindowsCaptureSource : IDisposable
             try { var pixels = new byte[checked(_width * _height * 4)]; for (int y = 0; y < _height; y++) Marshal.Copy(IntPtr.Add(mapped.DataPointer, y * mapped.RowPitch), pixels, y * _width * 4, _width * 4); PreviewFrame?.Invoke(pixels,_width,_height); _frames.Writer.TryWrite(pixels); }
             finally { _d3d.ImmediateContext.UnmapSubresource(_staging, 0); }
         }
-        catch (Exception ex) { Error?.Invoke(ex.Message); _frames.Writer.TryComplete(ex); }
+        catch (Exception ex) { Error?.Invoke(ex.Message); Interlocked.Exchange(ref _completed,1); _frames.Writer.TryComplete(ex); }
     }
-    public void Dispose() { _frames.Writer.TryComplete(); if (_pool is not null) _pool.FrameArrived -= OnFrame; _session?.Dispose(); _pool?.Dispose(); _staging?.Dispose(); _device?.Dispose(); _d3d.Dispose(); }
+    public void Dispose()
+    {
+        if(Interlocked.Exchange(ref _disposed,1)!=0) return;
+        Complete();
+        if(_item is not null) _item.Closed-=OnItemClosed;
+        if(_pool is not null) _pool.FrameArrived-=OnFrame;
+        // Wait for any in-progress copy before releasing its D3D objects.
+        lock(_frameGate) { }
+        _session?.Dispose(); _pool?.Dispose(); _staging?.Dispose(); _device?.Dispose(); _d3d.Dispose();
+    }
 }

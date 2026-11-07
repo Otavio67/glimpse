@@ -24,9 +24,12 @@ public sealed class H264Encoder : IDisposable
         finally { Dispose(); }
     }
     internal static Process Start(string arguments) {
+        return Process.Start(CreateStartInfo(arguments)) ?? throw new InvalidOperationException("Não foi possível iniciar o FFmpeg.");
+    }
+    internal static ProcessStartInfo CreateStartInfo(string arguments="") {
         var file = Environment.GetEnvironmentVariable("GLIMPSE_FFMPEG");
         if(string.IsNullOrWhiteSpace(file)) { file = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"); if (!File.Exists(file)) file = "ffmpeg.exe"; }
-        return Process.Start(new ProcessStartInfo(file, arguments) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true }) ?? throw new InvalidOperationException("Não foi possível iniciar o FFmpeg.");
+        return new ProcessStartInfo(file, arguments) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
     }
     public void Dispose() { try { if (_process is { HasExited: false }) _process.Kill(true); } catch { } _process?.Dispose(); _process = null; }
 }

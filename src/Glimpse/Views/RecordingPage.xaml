@@ -1,0 +1,43 @@
+<UserControl x:Class="Glimpse.Views.RecordingPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid>
+    <Grid.RowDefinitions><RowDefinition Height="72"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <Border BorderBrush="#2B3141" BorderThickness="0,0,0,1" Padding="24,0">
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <TextBlock Text="●" Foreground="#FF8C99" FontSize="21" VerticalAlignment="Center"/>
+        <StackPanel Margin="12,0,0,0">
+          <TextBlock Text="Gravação" FontWeight="Bold" FontSize="15"/>
+          <TextBlock Text="Grave uma tela ou uma janela neste PC" Foreground="#909BB1" FontSize="11" Margin="0,3,0,0"/>
+        </StackPanel>
+      </StackPanel>
+    </Border>
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Margin="24,22,24,24" MaxWidth="820">
+        <Border Background="#090C13" BorderBrush="#30374B" BorderThickness="1" CornerRadius="15" Padding="24,25">
+          <StackPanel>
+            <TextBlock x:Name="ModeText" Text="GRAVAÇÃO LOCAL" Foreground="#B9C2D5" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center"/>
+            <TextBlock x:Name="ElapsedText" Text="00:00:00" Foreground="#F1EFFF" FontSize="42" FontFamily="Consolas" HorizontalAlignment="Center" Margin="0,10,0,8" AutomationProperties.Name="Tempo de gravação"/>
+            <TextBlock x:Name="StatusText" Text="Escolha a tela ou janela que você quer gravar." Foreground="#A9B4C9" TextAlignment="Center" TextWrapping="Wrap" HorizontalAlignment="Center" AutomationProperties.LiveSetting="Polite"/>
+            <WrapPanel HorizontalAlignment="Center" Margin="0,20,0,0">
+              <Button x:Name="StartButton" Content="●  Iniciar gravação" Click="Start_Click" Background="#A999FF" Foreground="#1C1738"/>
+              <Button x:Name="StopButton" Content="■  Parar e salvar" Click="Stop_Click" Background="#4A303A" Foreground="#FFB7BD" IsEnabled="False"/>
+            </WrapPanel>
+          </StackPanel>
+        </Border>
+        <Border Background="#1A2030" BorderBrush="#2E3749" BorderThickness="1" CornerRadius="12" Padding="20" Margin="0,16,0,0">
+          <StackPanel>
+            <TextBlock Text="ONDE FICA SALVO" FontWeight="Bold" Foreground="#9DABBE" FontSize="11"/>
+            <TextBlock x:Name="FolderText" TextWrapping="Wrap" Foreground="#E4E9F5" Margin="0,8,0,4"/>
+            <TextBlock Text="MP4 · até 1080p · 30 quadros por segundo · sem áudio" Foreground="#9AA7BD" TextWrapping="Wrap"/>
+            <TextBlock x:Name="FileText" Foreground="#9AA7BD" TextWrapping="Wrap" Margin="0,8,0,0"/>
+            <WrapPanel Margin="0,13,0,0">
+              <Button Content="Abrir pasta" Click="OpenFolder_Click"/>
+              <Button x:Name="OpenVideoButton" Content="Abrir último vídeo" Click="OpenVideo_Click" IsEnabled="False"/>
+            </WrapPanel>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

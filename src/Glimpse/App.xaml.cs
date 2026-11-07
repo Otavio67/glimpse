@@ -12,6 +12,10 @@ public partial class App : Application
                 var window=new Views.MainWindow();
                 var viewModel=(ViewModels.MainViewModel)window.DataContext;
                 if(viewModel.IsInRoom || viewModel.RoomControlsVisibility!=Visibility.Collapsed) throw new InvalidOperationException("Os controles da sala apareceram antes da entrada.");
+                var recordingPage=(Views.RecordingPage)window.FindName("Recorder");
+                var recordingTab=(System.Windows.Controls.Button)window.FindName("RecordingRail");
+                recordingTab.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                if(recordingPage.Visibility!=Visibility.Visible || recordingPage.IsBusy) throw new InvalidOperationException("A aba de gravação não abriu em espera.");
                 new Views.RoomSetupDialog(true,viewModel).Close();
                 new Views.RoomSetupDialog(false,viewModel).Close();
                 new Views.ShareSourceDialog().Close();

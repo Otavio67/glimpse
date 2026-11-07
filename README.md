@@ -2,11 +2,13 @@
 
 ## Instalação no Windows
 
-**[⬇ Baixar Glimpse completo para Windows x64](https://github.com/Otavio67/glimpse/releases/download/v0.2.9-preview/Glimpse-Windows-x64.zip)**
+**[⬇ Baixar Glimpse completo para Windows x64](https://github.com/Otavio67/glimpse/releases/download/v0.2.10-preview/Glimpse-Windows-x64.zip)**
 
 Extraia o ZIP inteiro e dê dois cliques em **Abrir Glimpse.cmd**. O pacote já inclui o aplicativo, runtime .NET, bibliotecas e FFmpeg. Para criar atalhos na Área de Trabalho e no menu Iniciar, execute **Instalar Glimpse.cmd**. Não há downloads adicionais de dependências nesses dois caminhos. Requer Windows 10 2004 ou mais recente, x64. O download é público.
 
 Ao hospedar, escolha **Copiar link da sala** e envie ao seu amigo. Quem já executou **Instalar Glimpse.cmd** pode abrir o Glimpse direto do link. Também é possível colar o código de 16 caracteres na tela **Entrar na sala de um amigo**. O Glimpse tenta IPv4 e IPv6, negocia uma rota UDP direta por ICE e recorre ao retransmissor gratuito se as rotas diretas falharem. Veja [salas nativas](docs/native-rooms.md).
+
+Na aba **Gravação**, escolha **Iniciar gravação** e selecione uma tela ou janela no seletor do Windows. **Parar e salvar** finaliza o MP4 em **Vídeos → Glimpse**. Use **Abrir pasta** ou **Abrir último vídeo** para acessar a gravação. A gravação é local, em até 1080p a 30 fps, sem áudio, e funciona sem entrar numa sala.
 
 Se baixar o código por **Code → Download ZIP**, execute o mesmo **Instalar Glimpse.cmd** depois de extrair. O instalador baixa também as ferramentas para compilar a aplicação automaticamente. Mais detalhes e requisitos em [instalação](docs/installation.md).
 

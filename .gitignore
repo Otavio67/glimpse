@@ -3,4 +3,5 @@ obj/
 .vs/
 *.user
 .tools/
+.wrangler/
 dist/

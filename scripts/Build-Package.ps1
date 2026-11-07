@@ -1,5 +1,9 @@
-param([string]$OutputRoot, [switch]$NoZip)
+param([string]$OutputRoot, [switch]$NoZip, [uri]$RelayUrl)
 $ErrorActionPreference = 'Stop'
+$relayConfigured = $null -ne $RelayUrl
+if ($relayConfigured -and (!$RelayUrl.IsAbsoluteUri -or $RelayUrl.Scheme -ne 'wss' -or $RelayUrl.AbsolutePath -ne '/' -or $RelayUrl.UserInfo -or $RelayUrl.Query -or $RelayUrl.Fragment)) {
+    throw 'Informe o endereco WSS do retransmissor, sem caminho ou credenciais.'
+}
 $ProgressPreference = 'SilentlyContinue'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not $OutputRoot) { $OutputRoot = Join-Path $root 'dist' }
@@ -36,6 +40,7 @@ $videoLicenses = Join-Path $bundle 'licenses\ffmpeg'
 New-Item -ItemType Directory -Force -Path $videoLicenses | Out-Null
 Copy-Item -LiteralPath (Join-Path $video.Directory 'LICENSE'),(Join-Path $video.Directory 'README.txt'),(Join-Path $root 'docs\ffmpeg-provenance.md') -Destination $videoLicenses
 $app = Join-Path $bundle 'app'
+if ($relayConfigured) { $RelayUrl.AbsoluteUri | Set-Content -LiteralPath (Join-Path $app 'relay-url.txt') -Encoding ASCII }
 $files = @(Get-ChildItem -LiteralPath $app -File -Recurse | ForEach-Object { [ordered]@{ Path=$_.FullName.Substring($app.Length+1); Sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } })
 $projectVersion=([xml](Get-Content -LiteralPath (Join-Path $root 'src\Glimpse\Glimpse.csproj') -Raw)).Project.PropertyGroup.Version
 [ordered]@{ Version=$projectVersion; Files=$files } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $bundle 'app-files.json') -Encoding UTF8

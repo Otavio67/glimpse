@@ -38,28 +38,45 @@ Console.WriteLine("Invitation validation, public/private IPv4 classification, wr
 
 if(Socket.OSSupportsIPv6) {
     using var dualStack=new NativeRoomHost(0,enableIPv6:true);
-    var dualCode=dualStack.Invite(IPAddress.Loopback,ipv6:IPAddress.IPv6Loopback);
+    var dualCode=dualStack.Invite(IPAddress.Parse("192.0.2.1"),ipv6:IPAddress.IPv6Loopback);
     Require(NativeRoomInvite.Parse(dualCode).IPv6Address?.Equals(IPAddress.IPv6Loopback)==true,"IPv6 invite did not round trip.");
     Require(RoomInviteLink.Unwrap(RoomInviteLink.ToWebLink(dualCode))==dualCode,"Dual-stack web invite did not round trip.");
     var accepting=dualStack.AcceptAsync(deadline.Token);
     using var ipv6Guest=await NativeRoomConnection.JoinAsync(dualCode,deadline.Token);
     using var accepted=await accepting;
 
-    var fallbackCode=host.Invite(IPAddress.Loopback,ipv6:IPAddress.IPv6Loopback);
+    var fallbackCode=host.Invite(IPAddress.Parse("192.0.2.1"),lan:IPAddress.Loopback);
     using(var fallbackGuest=await NativeRoomConnection.JoinAsync(fallbackCode,deadline.Token)) {
         await UntilAsync(()=>hub.ParticipantCount==2);
     }
     await UntilAsync(()=>hub.ParticipantCount==1);
-    Console.WriteLine("IPv6 connection and automatic IPv4 fallback passed.");
+    Console.WriteLine("IPv6 connection and direct LAN priority passed.");
+}
+
+using var relayHost=args.Contains("--relay")
+    ? await RelayHost.StartAsync(RoomRelay.Endpoint() ?? throw new Exception("Set GLIMPSE_RELAY_URL for --relay."),host.Port,deadline.Token)
+    : null;
+var remoteCode=relayHost is null ? code : host.Invite(IPAddress.Parse("127.0.0.2"),relayId:relayHost.Id);
+if(relayHost is not null) {
+    var directCode=host.Invite(IPAddress.Parse("127.0.0.2"),lan:IPAddress.Loopback,relayId:relayHost.Id);
+    Require(RoomInviteLink.Unwrap(RoomInviteLink.ToWebLink(directCode))==directCode,"Extended invite link did not round trip.");
+    using(var direct=await NativeRoomConnection.JoinAsync(directCode,deadline.Token,()=>throw new Exception("Relay tried despite working LAN route."))) {
+        Require(!direct.UsesRelay,"A working direct route did not take priority.");
+        await UntilAsync(()=>hub.ParticipantCount==2);
+    }
+    await UntilAsync(()=>hub.ParticipantCount==1);
+    Console.WriteLine("A room with relay enabled still chose its working direct route.");
 }
 
 var connections=new List<NativeRoomConnection>(); var runs=new List<Task>();
 try {
-    var first=await NativeRoomConnection.JoinAsync(code,deadline.Token); connections.Add(first);
+    var first=await NativeRoomConnection.JoinAsync(remoteCode,deadline.Token); connections.Add(first);
+    Require(first.UsesRelay==(relayHost is not null),"The guest used the wrong transport.");
     var firstFrames=new ConcurrentQueue<byte[]>(); first.VideoFrame+=frame=>firstFrames.Enqueue(frame);
     var firstRevoked=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); first.PresentationRevoked+=()=>firstRevoked.TrySetResult();
     runs.Add(first.RunAsync());
-    var second=await NativeRoomConnection.JoinAsync(code,deadline.Token); connections.Add(second);
+    var second=await NativeRoomConnection.JoinAsync(remoteCode,deadline.Token); connections.Add(second);
+    Require(second.UsesRelay==(relayHost is not null),"The second guest used the wrong transport.");
     var secondFrames=new ConcurrentQueue<byte[]>(); second.VideoFrame+=frame=>secondFrames.Enqueue(frame);
     runs.Add(second.RunAsync());
     await UntilAsync(()=>hub.ParticipantCount==3);

@@ -3,6 +3,9 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Net.WebSockets;
+using System.Net.Http;
+using System.Runtime.ExceptionServices;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -10,32 +13,49 @@ using System.Threading.Channels;
 
 namespace Glimpse.Networking;
 
-public sealed record NativeRoomInvite(IPAddress Address, int Port, byte[] Fingerprint, byte[] Secret, IPAddress? IPv6Address=null)
+public sealed record NativeRoomInvite(IPAddress Address, int Port, byte[] Fingerprint, byte[] Secret,
+    IPAddress? IPv6Address=null, IPAddress? LanAddress=null, byte[]? RelayId=null)
 {
+    private const int ExtendedSize=123;
     public string Encode()
     {
         if(Address.AddressFamily!=AddressFamily.InterNetwork || Port is <1 or >65535 || Fingerprint.Length!=32 || Secret.Length!=32) throw new InvalidDataException("Dados de convite inválidos.");
         if(IPv6Address is not null && !IsValidIPv6(IPv6Address)) throw new InvalidDataException("Endereço IPv6 inválido no convite.");
-        var data=new byte[IPv6Address is null ? 70 : 86]; Address.GetAddressBytes().CopyTo(data,0);
+        if(LanAddress is not null && !IsValidIPv4(LanAddress) || RelayId is not null && RelayId.Length!=32)
+            throw new InvalidDataException("Rota alternativa inválida no convite.");
+        bool extended=LanAddress is not null || RelayId is not null;
+        var data=new byte[extended ? ExtendedSize : IPv6Address is null ? 70 : 86]; Address.GetAddressBytes().CopyTo(data,0);
         BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(4), (ushort)Port); Fingerprint.CopyTo(data,6); Secret.CopyTo(data,38);
         IPv6Address?.GetAddressBytes().CopyTo(data,70);
+        if(extended) {
+            data[86]=(byte)((IPv6Address is null ? 0 : 1) | (LanAddress is null ? 0 : 2) | (RelayId is null ? 0 : 4));
+            LanAddress?.GetAddressBytes().CopyTo(data,87);
+            RelayId?.CopyTo(data,91);
+        }
         return "GLN-"+Convert.ToBase64String(data).TrimEnd('=').Replace('+','-').Replace('/','_');
     }
     public static NativeRoomInvite Parse(string code)
     {
         code=code.Trim();
-        if(code.Length>128 || !code.StartsWith("GLN-",StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Informe um convite de sala hospedada no Glimpse (GLN-...).");
+        if(code.Length>168 || !code.StartsWith("GLN-",StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Informe um convite de sala hospedada no Glimpse (GLN-...).");
         byte[] data;
         try { var value=code[4..].Replace('-','+').Replace('_','/'); data=Convert.FromBase64String(value.PadRight((value.Length+3)/4*4,'=')); }
         catch(FormatException) { throw new InvalidDataException("Convite incompleto ou inválido."); }
-        if(data.Length is not (70 or 86)) throw new InvalidDataException("Convite incompleto ou inválido.");
+        if(data.Length is not (70 or 86 or ExtendedSize)) throw new InvalidDataException("Convite incompleto ou inválido.");
         int port=BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(4));
         var address=new IPAddress(data.AsSpan(0,4));
-        if(port==0 || address.Equals(IPAddress.Any) || address.GetAddressBytes()[0]>=224) throw new InvalidDataException("Endereço ou porta inválidos no convite.");
-        var ipv6=data.Length==86 ? new IPAddress(data.AsSpan(70,16)) : null;
+        if(port==0 || !IsValidIPv4(address)) throw new InvalidDataException("Endereço ou porta inválidos no convite.");
+        int flags=data.Length==ExtendedSize ? data[86] : data.Length==86 ? 1 : 0;
+        if((flags&~7)!=0) throw new InvalidDataException("Rotas inválidas no convite.");
+        var ipv6=(flags&1)!=0 ? new IPAddress(data.AsSpan(70,16)) : null;
         if(ipv6 is not null && !IsValidIPv6(ipv6)) throw new InvalidDataException("Endereço IPv6 inválido no convite.");
-        return new(address,port,data.AsSpan(6,32).ToArray(),data.AsSpan(38,32).ToArray(),ipv6);
+        var lan=(flags&2)!=0 ? new IPAddress(data.AsSpan(87,4)) : null;
+        if(lan is not null && !IsValidIPv4(lan)) throw new InvalidDataException("Endereço de rede local inválido no convite.");
+        var relay=(flags&4)!=0 ? data.AsSpan(91,32).ToArray() : null;
+        return new(address,port,data.AsSpan(6,32).ToArray(),data.AsSpan(38,32).ToArray(),ipv6,lan,relay);
     }
+    private static bool IsValidIPv4(IPAddress address) => address.AddressFamily==AddressFamily.InterNetwork &&
+        address.GetAddressBytes()[0] is >0 and <224;
     internal static bool IsGlobalIPv6(IPAddress address) => address.AddressFamily==AddressFamily.InterNetworkV6 &&
         address.ScopeId==0 && (address.GetAddressBytes()[0]&0xe0)==0x20;
     private static bool IsValidIPv6(IPAddress address) => address.Equals(IPAddress.IPv6Loopback) || IsGlobalIPv6(address);
@@ -66,7 +86,8 @@ public sealed class NativeRoomHost : IDisposable
             _listener.Start();
         } catch { _listener.Stop(); _certificate.Dispose(); _stop.Dispose(); throw; }
     }
-    public string Invite(IPAddress address, int? publicPort=null, IPAddress? ipv6=null) => new NativeRoomInvite(address,publicPort??Port,SHA256.HashData(_certificate.RawData),_secret,ipv6).Encode();
+    public string Invite(IPAddress address, int? publicPort=null, IPAddress? ipv6=null, IPAddress? lan=null, byte[]? relayId=null) =>
+        new NativeRoomInvite(address,publicPort??Port,SHA256.HashData(_certificate.RawData),_secret,ipv6,lan,relayId).Encode();
     public async Task<NativeRoomConnection> AcceptAsync(CancellationToken token,Func<bool>? canJoin=null)
     {
         using var lifetime=CancellationTokenSource.CreateLinkedTokenSource(token,_token);
@@ -119,13 +140,21 @@ public sealed class NativeRoomHost : IDisposable
         address.AddressFamily==AddressFamily.InterNetwork && !IPAddress.IsLoopback(address) &&
         NetworkInterface.GetAllNetworkInterfaces().Any(adapter=>adapter.OperationalStatus==OperationalStatus.Up &&
             adapter.GetIPProperties().UnicastAddresses.Any(item=>item.Address.Equals(address)));
+    internal static bool OnLocalSubnet(IPAddress address)
+    {
+        uint target=BinaryPrimitives.ReadUInt32BigEndian(address.GetAddressBytes());
+        return NetworkInterface.GetAllNetworkInterfaces().Where(adapter=>adapter.OperationalStatus==OperationalStatus.Up)
+            .SelectMany(adapter=>adapter.GetIPProperties().UnicastAddresses)
+            .Any(item=>item.Address.AddressFamily==AddressFamily.InterNetwork && item.PrefixLength is >0 and <=32 &&
+                (BinaryPrimitives.ReadUInt32BigEndian(item.Address.GetAddressBytes())^target)>>(32-item.PrefixLength)==0);
+    }
     public void Dispose() { if(Interlocked.Exchange(ref _disposed,1)!=0) return; _stop.Cancel(); _listener.Stop(); _certificate.Dispose(); _stop.Dispose(); }
 }
 
 public sealed class NativeRoomConnection : IDisposable
 {
     private const int MaxFrame=2_000_000;
-    private readonly TcpClient _client;
+    private readonly TcpClient? _client;
     private readonly SslStream _stream;
     private readonly CancellationTokenSource _stop=new();
     private readonly CancellationToken _token;
@@ -138,21 +167,29 @@ public sealed class NativeRoomConnection : IDisposable
     public event Action<int>? ParticipantCountChanged;
     public event Action<string>? Closed;
     public bool IsConnected => Volatile.Read(ref _disposed)==0;
-    internal NativeRoomConnection(TcpClient client,SslStream stream) { _client=client; _client.NoDelay=true; _stream=stream; _token=_stop.Token; }
-    public static async Task<NativeRoomConnection> JoinAsync(string code,CancellationToken token)
+    public bool UsesRelay => _client is null;
+    internal NativeRoomConnection(TcpClient? client,SslStream stream) { _client=client; if(client is not null) client.NoDelay=true; _stream=stream; _token=_stop.Token; }
+    public static async Task<NativeRoomConnection> JoinAsync(string code,CancellationToken token,Action? tryingRelay=null)
     {
         var invite=NativeRoomInvite.Parse(code);
-        if(invite.IPv6Address is not { } ipv6 || !Socket.OSSupportsIPv6)
-            return await JoinEndpointAsync(invite,invite.Address,25,token);
+        var relay=invite.RelayId is not null ? RoomRelay.Endpoint() : null;
+        var addresses=new List<IPAddress>();
+        if(invite.LanAddress is { } lan && NativeRoomHost.OnLocalSubnet(lan)) addresses.Add(lan);
+        bool preferIPv4=RouterPortMapping.IsPublicIpv4(invite.Address) || NativeRoomHost.OnLocalSubnet(invite.Address);
+        if(preferIPv4) addresses.Add(invite.Address);
+        if(Socket.OSSupportsIPv6 && invite.IPv6Address is { } ipv6) addresses.Add(ipv6);
+        if(!preferIPv4) addresses.Add(invite.Address);
+        if(invite.LanAddress is { } local) addresses.Add(local);
 
-        // Prefer a known public IPv4 route. Otherwise try IPv6 before the LAN fallback.
-        var preferIPv4=RouterPortMapping.IsPublicIpv4(invite.Address);
-        var first=preferIPv4 ? invite.Address : ipv6;
-        var second=preferIPv4 ? ipv6 : invite.Address;
-        try { return await JoinEndpointAsync(invite,first,8,token); }
-        catch(Exception ex) when(!token.IsCancellationRequested && ex is TimeoutException or AuthenticationException or NativeRoomRouteException) {
-            return await JoinEndpointAsync(invite,second,10,token);
+        Exception? directFailure=null;
+        int seconds=relay is not null ? 5 : addresses.Count==1 ? 25 : 8;
+        foreach(var address in addresses.Distinct()) {
+            try { return await JoinEndpointAsync(invite,address,seconds,token); }
+            catch(Exception ex) when(!token.IsCancellationRequested && ex is TimeoutException or AuthenticationException or NativeRoomRouteException) { directFailure=ex; }
         }
+        if(relay is null) ExceptionDispatchInfo.Throw(directFailure!);
+        tryingRelay?.Invoke();
+        return await JoinRelayAsync(invite,relay!,token);
     }
 
     private static async Task<NativeRoomConnection> JoinEndpointAsync(NativeRoomInvite invite,IPAddress address,int seconds,CancellationToken token)
@@ -162,20 +199,17 @@ public sealed class NativeRoomConnection : IDisposable
         bool authenticated=false;
         try {
             await client.ConnectAsync(address,invite.Port,deadline.Token);
-            stream=new SslStream(client.GetStream(),false,(_,certificate,_,_)=>certificate is not null && CryptographicOperations.FixedTimeEquals(SHA256.HashData(certificate.GetRawCertData()),invite.Fingerprint));
-            await stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost="Glimpse native", EnabledSslProtocols=SslProtocols.Tls12|SslProtocols.Tls13 },deadline.Token);
+            stream=CreateGuestTls(client.GetStream(),invite);
+            await AuthenticateGuestAsync(stream,deadline.Token);
             authenticated=true;
-            await stream.WriteAsync(invite.Secret,deadline.Token);
-            var acknowledgement=new byte[1]; await stream.ReadExactlyAsync(acknowledgement,deadline.Token);
-            if(acknowledgement[0]==2) throw new IOException("A sala está cheia. O limite é de oito pessoas, incluindo o anfitrião.");
-            if(acknowledgement[0]!=1) throw new InvalidDataException("A sala não confirmou a entrada.");
+            await ConfirmEntryAsync(stream,invite,deadline.Token);
             return new(client,stream);
         }
         catch(Exception ex) {
             stream?.Dispose(); client.Dispose();
             if(token.IsCancellationRequested) throw;
             if(!authenticated && (ex is SocketException || deadline.IsCancellationRequested)) {
-                var message=$"O anfitrião não respondeu na porta TCP {invite.Port}. Peça um convite da sala aberta agora. Se usarem rede local ou VPN, conectem-se à mesma rede. Pela internet direta, confira o encaminhamento da porta no roteador e a permissão do Glimpse no firewall.";
+                var message=$"O anfitrião não respondeu na porta TCP {invite.Port}. Peça um convite da sala aberta agora. Para conexão direta pela internet, confira a permissão do Glimpse no firewall e a configuração da porta no roteador.";
                 if(deadline.IsCancellationRequested || ex is SocketException { SocketErrorCode:SocketError.TimedOut }) throw new TimeoutException(message,ex);
                 throw new NativeRoomRouteException(message,ex);
             }
@@ -186,6 +220,47 @@ public sealed class NativeRoomConnection : IDisposable
             throw;
         }
     }
+    private static SslStream CreateGuestTls(Stream transport,NativeRoomInvite invite) => new(transport,false,
+        (_,certificate,_,_)=>certificate is not null && CryptographicOperations.FixedTimeEquals(SHA256.HashData(certificate.GetRawCertData()),invite.Fingerprint));
+
+    private static Task AuthenticateGuestAsync(SslStream stream,CancellationToken token) => stream.AuthenticateAsClientAsync(
+        new SslClientAuthenticationOptions { TargetHost="Glimpse native", EnabledSslProtocols=SslProtocols.Tls12|SslProtocols.Tls13 },token);
+
+    private static async Task ConfirmEntryAsync(SslStream stream,NativeRoomInvite invite,CancellationToken token)
+    {
+        await stream.WriteAsync(invite.Secret,token);
+        var acknowledgement=new byte[1];
+        await stream.ReadExactlyAsync(acknowledgement,token);
+        if(acknowledgement[0]==2) throw new RoomFullException();
+        if(acknowledgement[0]!=1) throw new InvalidDataException("A sala não confirmou a entrada.");
+    }
+
+    private static async Task<NativeRoomConnection> JoinRelayAsync(NativeRoomInvite invite,Uri endpoint,CancellationToken token)
+    {
+        using var deadline=CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        ClientWebSocket? socket=null;
+        SslStream? stream=null;
+        try {
+            try { socket=await RoomRelay.OpenAsync(endpoint,invite.RelayId!,null,deadline.Token); }
+            catch(WebSocketException) when(!deadline.IsCancellationRequested) {
+                // The host may be opening its next waiting socket after admitting another guest.
+                await Task.Delay(750,deadline.Token);
+                socket=await RoomRelay.OpenAsync(endpoint,invite.RelayId!,null,deadline.Token);
+            }
+            stream=CreateGuestTls(new RelayStream(socket),invite);
+            await AuthenticateGuestAsync(stream,deadline.Token);
+            await ConfirmEntryAsync(stream,invite,deadline.Token);
+            var connection=new NativeRoomConnection(null,stream);
+            socket=null; stream=null;
+            return connection;
+        }
+        catch(Exception ex) when(!token.IsCancellationRequested && ex is (IOException or HttpRequestException or WebSocketException or AuthenticationException or OperationCanceledException) and not RoomFullException) {
+            throw new IOException("A conexão direta falhou e o retransmissor não conseguiu confirmar a sala. Confira se o anfitrião mantém a sala aberta e tente novamente.",ex);
+        }
+        finally { stream?.Dispose(); socket?.Dispose(); }
+    }
+    private sealed class RoomFullException() : IOException("A sala está cheia. O limite é de oito pessoas, incluindo o anfitrião.");
     private sealed class NativeRoomRouteException(string message,Exception inner) : IOException(message,inner);
     public bool TrySendVideo(byte[] frame) => Queue(1,frame);
     public void NotifySharingStopped() => Queue(2,Array.Empty<byte>());
@@ -235,7 +310,7 @@ public sealed class NativeRoomConnection : IDisposable
     }
     private async Task HeartbeatAsync() { try { while(true) { await Task.Delay(TimeSpan.FromSeconds(10),_token); if(!Queue(3,Array.Empty<byte>())) return; } } catch(OperationCanceledException) when(_token.IsCancellationRequested) { } }
     private void Fail(string message) { if(DisposeCore()) Closed?.Invoke(message); }
-    private bool DisposeCore() { if(Interlocked.Exchange(ref _disposed,1)!=0) return false; _stop.Cancel(); _outgoing.Writer.TryComplete(); _stream.Dispose(); _client.Dispose(); return true; }
+    private bool DisposeCore() { if(Interlocked.Exchange(ref _disposed,1)!=0) return false; _stop.Cancel(); _outgoing.Writer.TryComplete(); _stream.Dispose(); _client?.Dispose(); return true; }
     // Keep CTS alive until its asynchronous users have observed cancellation.
     public void Dispose() => DisposeCore();
 }

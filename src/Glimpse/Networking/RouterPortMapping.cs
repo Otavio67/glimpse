@@ -7,10 +7,11 @@ namespace Glimpse.Networking;
 public sealed class RouterPortMapping : IDisposable
 {
     private readonly int _port;
-    private readonly string _description;
+    private readonly string? _description;
     private int _disposed;
     public IPAddress ExternalAddress { get; }
-    private RouterPortMapping(int port,string description,IPAddress external) { _port=port; _description=description; ExternalAddress=external; }
+    private RouterPortMapping(int port,string? description,IPAddress external) { _port=port; _description=description; ExternalAddress=external; }
+    public bool Reused => _description is null;
     public static async Task<RouterPortMapping> OpenAsync(IPAddress local,int port,CancellationToken token)
     {
         var operation=Task.Run(()=>Open(local,port));
@@ -33,7 +34,17 @@ public sealed class RouterPortMapping : IDisposable
             if(collection is null) throw new IOException("O roteador não disponibilizou abertura automática de portas.");
             object? existing=null;
             try { existing=((dynamic)collection)[port,"TCP"]; } catch(COMException) { }
-            if(existing is not null) { Release(existing); throw new IOException("Esta porta já está encaminhada no roteador. Escolha outra porta no Glimpse."); }
+            if(existing is not null) {
+                try {
+                    dynamic rule=existing;
+                    if((bool)rule.Enabled && (int)rule.InternalPort==port &&
+                        IPAddress.TryParse((string)rule.InternalClient,out IPAddress? target) && target.Equals(local) &&
+                        IPAddress.TryParse((string)rule.ExternalIPAddress,out IPAddress? publicAddress) && IsPublicIpv4(publicAddress))
+                        return new(port,null,publicAddress);
+                    throw new IOException("Esta porta já está encaminhada para outro destino. Escolha outra porta no Glimpse.");
+                }
+                finally { Release(existing); }
+            }
             mapping=((dynamic)collection).Add(port,"TCP",port,local.ToString(),true,description); added=true;
             var external=IPAddress.Parse((string)((dynamic)mapping).ExternalIPAddress);
             if(!IsPublicIpv4(external)) throw new IOException("O roteador recebeu um endereço privado. Pode haver outro roteador ou CGNAT da operadora. Use um IPv4 público acessível para hospedar.");
@@ -53,7 +64,7 @@ public sealed class RouterPortMapping : IDisposable
     }
     public void Dispose()
     {
-        if(Interlocked.Exchange(ref _disposed,1)!=0) return;
+        if(Interlocked.Exchange(ref _disposed,1)!=0 || _description is null) return;
         // Avoid blocking the UI during gateway discovery/cleanup.
         _=Task.Run(()=>{
             object? nat=null, collection=null, mapping=null;

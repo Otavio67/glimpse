@@ -1,0 +1,13 @@
+name = "glimpse-relay"
+main = "worker.mjs"
+compatibility_date = "2026-10-15"
+workers_dev = true
+preview_urls = false
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "RelayRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelayRoom"]

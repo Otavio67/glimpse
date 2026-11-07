@@ -1,6 +1,6 @@
 # Salas hospedadas no próprio PC
 
-Este é o modo padrão do Glimpse: **Hospedar no próprio PC**. O próprio aplicativo recebe os convidados e distribui o vídeo, sem precisar de um serviço de salas. É possível usar uma rede virtual já configurada, como Radmin ou Hamachi, quando a conexão direta pela internet não estiver disponível.
+Este é o modo padrão do Glimpse: **Hospedar no próprio PC**. O anfitrião recebe os convidados e distribui o vídeo. Com o retransmissor configurado no pacote, o mesmo convite conecta PCs em redes diferentes mesmo quando o roteador bloqueia as rotas diretas. A conexão inteira é feita pelo Glimpse.
 
 A tela inicial mostra **Hospedar sala** e **Entrar na sala de um amigo**. Cada opção abre um pop-up com os campos correspondentes. Os controles de compartilhar, parar e sair só aparecem depois de criar a sala ou concluir a entrada; ao sair, a tela volta às duas opções iniciais. O anfitrião pode abrir novamente o convite por **Ver convite da sala**.
 
@@ -14,7 +14,7 @@ A sala aceita até **8 pessoas: anfitrião + 7 convidados**. Todos usam o mesmo 
 
 Os primeiros caracteres podem se repetir entre salas hospedadas no mesmo endereço e porta. Cada sala nova gera um certificado e uma chave novos. Copie o link da sala que está aberta agora.
 
-O anfitrião usa **Copiar link da sala**. O convidado abre o link no navegador e clica em **Abrir Glimpse**. Para o Windows reconhecer o link, execute **Instalar Glimpse.cmd** uma vez. Na versão portátil, cole o link ou o código em **Entrar na sala de um amigo**. O site só encaminha a abertura do aplicativo. O convite fica no fragmento do endereço e o vídeo segue diretamente entre os PCs.
+O anfitrião usa **Copiar link da sala**. O convidado abre o link no navegador e clica em **Abrir Glimpse**. Para o Windows reconhecer o link, execute **Instalar Glimpse.cmd** uma vez. Na versão portátil, cole o link ou o código em **Entrar na sala de um amigo**. O site abre o aplicativo. O convite fica no fragmento do endereço e o navegador não recebe o vídeo.
 
 **Qualquer participante pode compartilhar uma janela ou tela**, usando o seletor do Windows, sem aprovação do anfitrião. Há uma apresentação por vez: quem começa a compartilhar assume a apresentação, interrompendo a captura do apresentador anterior. Um convidado pode apresentar para o anfitrião e os demais convidados. Parar de compartilhar mantém a pessoa na sala e limpa a apresentação dos outros. Não há compartilhamentos simultâneos nesta versão.
 
@@ -28,9 +28,15 @@ O anfitrião usa **Copiar link da sala**. O convidado abre o link no navegador e
 
 Se o Windows tiver uma rota com IPv6 global, o Glimpse inclui esse endereço no mesmo convite. O convidado tenta as rotas disponíveis sem digitar IP. A rota IPv6 também precisa aceitar conexões de entrada no roteador e no firewall. Use uma versão atual em ambos os PCs para convites que incluem IPv6.
 
-Quando não encontra IPv4 público nem IPv6 global, o aplicativo cria um convite de rede local. Um endereço privado retornado pelo roteador pode indicar NAT duplo ou CGNAT. O encaminhamento no roteador não supera bloqueios de entrada da operadora. Se nenhuma rota direta estiver disponível, use uma rede virtual compartilhada ou uma conexão que permita receber convidados.
+Quando todas as rotas diretas falham, um convite com rota reserva tenta o retransmissor. Um endereço privado retornado pelo roteador pode indicar NAT duplo ou CGNAT. O retransmissor usa conexões de saída por HTTPS/WebSocket dos dois PCs, portanto o anfitrião pode aceitar convidados mesmo sem encaminhamento de porta.
 
 O diagnóstico de abertura da porta **não comprova acesso externo**. A validação final precisa de um convidado em outra rede. Usar o convite público dentro da mesma rede pode falhar se o roteador não suportar NAT loopback.
+
+## Rota reserva
+
+Ao criar a sala, o Glimpse abre uma conexão de espera com o retransmissor, quando disponível no pacote. Só passam dados da sala por essa conexão quando um convidado esgota as rotas diretas e recorre à reserva. O servidor apenas encaminha os bytes TLS entre o convidado e o anfitrião. O convidado confere a impressão do certificado do anfitrião antes de enviar a chave da sala. A criptografia do vídeo termina nos dois Glimpses.
+
+O servidor é um Cloudflare Worker com Durable Objects, em `relay/`. Para preparar um pacote com o servidor ativo, informe `-RelayUrl wss://<servidor>` a `scripts/Build-Package.ps1`. O pacote contém o endereço do serviço, que é o mesmo para ambos os PCs. O teste `Glimpse.NativeRooms --relay --video` usa o endereço de `GLIMPSE_RELAY_URL`, força uma rota direta indisponível e exercita a entrada e a transmissão entre convidados. O [plano gratuito](https://developers.cloudflare.com/durable-objects/platform/pricing/) tem cotas e pode recusar novas conexões quando são atingidas.
 
 ## Usar a mesma rede Radmin ou Hamachi
 

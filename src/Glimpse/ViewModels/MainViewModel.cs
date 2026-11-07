@@ -13,6 +13,8 @@ using Glimpse.RoomProtocol;
 using Glimpse.Profiles;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.WebSockets;
+using System.Net.Http;
 using System.Security.Authentication;
 namespace Glimpse.ViewModels;
 public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
@@ -28,6 +30,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private NativeRoomHub? _nativeHub;
     private NativeRoomConnection? _nativeConnection;
     private RouterPortMapping? _routerMapping;
+    private RelayHost? _relayHost;
     private WindowsCaptureSource? _capture;
     private H264Encoder? _encoder;
     private H264Decoder? _decoder;
@@ -167,18 +170,32 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                     var mapping=await RouterPortMapping.OpenAsync(local,port,token);
                     if(version!=_sessionVersion) { mapping.Dispose(); return; }
                     _routerMapping=mapping; advertised??=mapping.ExternalAddress;
-                    detail="Porta TCP configurada automaticamente no roteador.";
+                    detail=mapping.Reused ? "Encaminhamento TCP existente para este PC encontrado no roteador." : "Porta TCP configurada automaticamente no roteador.";
                 }
                 catch(Exception ex) when(!token.IsCancellationRequested) { detail=ex is IOException ? ex.Message : "O roteador não confirmou a abertura automática. Configure a porta manualmente."; }
             }
             if(version!=_sessionVersion) return;
+            string relayDetail="";
+            if(sharedAddress is null && RoomRelay.Endpoint() is { } relayEndpoint) {
+                Status="Preparando a rota reserva da sala...";
+                try {
+                    var relay=await RelayHost.StartAsync(relayEndpoint,host.Port,token);
+                    if(version!=_sessionVersion) { relay.Dispose(); return; }
+                    _relayHost=relay;
+                    relayDetail=" Se as rotas diretas falharem, o link tentará o retransmissor.";
+                }
+                catch(Exception ex) when(!token.IsCancellationRequested && ex is IOException or WebSocketException or HttpRequestException or OperationCanceledException) {
+                    relayDetail=" A rota reserva está indisponível. O convite tentará as rotas diretas.";
+                }
+            }
+            if(version!=_sessionVersion) return;
             bool internet=advertised is not null || ipv6 is not null;
-            LocalText=host.Invite(advertised??local,ipv6:ipv6);
+            LocalText=host.Invite(advertised??local,ipv6:ipv6,lan:advertised is not null && !advertised.Equals(local) ? local : null,relayId:_relayHost?.Id);
             NetworkDetails=$"PC: {local} • TCP: {port}. "+(sharedAddress is not null
                 ? "Convite para a rede compartilhada. Seu amigo precisa estar na mesma rede local, Radmin ou Hamachi. Permita o Glimpse no firewall nessa rede."
                 : detail+(ipv6 is not null ? " O link também pode usar IPv6 entre redes compatíveis." : "")+
-                    (internet ? " Permita a porta no firewall. O acesso externo ainda precisa ser testado." : " Convite disponível apenas na rede local. Para internet direta, use um IPv4 público e encaminhe a porta. Se estiverem na mesma VPN, recrie a sala com o IPv4 dessa rede."));
-            Status=internet ? "Sala hospedada no seu PC. Envie o link ao seu amigo." : "Sala criada para a rede compartilhada.";
+                    (internet ? " A entrada direta depende do roteador e do firewall." : _relayHost is not null ? " Rota direta disponível na rede local." : " Convite disponível apenas na rede local. Para internet direta, use um IPv4 público e encaminhe a porta.")+relayDetail);
+            Status=internet || _relayHost is not null ? "Sala hospedada no seu PC. Envie o link ao seu amigo." : "Sala criada para a rede compartilhada.";
             _nativeHub=new NativeRoomHub(host);
             _nativeHub.VideoFrame+=data=>{ if(version==_sessionVersion) _decoder?.TryWrite(data); };
             _nativeHub.SharingStopped+=()=>ResetNativePlayback(version);
@@ -205,7 +222,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         var version=_sessionVersion;
         Status="Conectando diretamente ao PC anfitrião...";
         try {
-            var connection=await NativeRoomConnection.JoinAsync(code,_sessionCancellation.Token);
+            var connection=await NativeRoomConnection.JoinAsync(code,_sessionCancellation.Token,()=>OnUi(()=>{
+                if(version==_sessionVersion) Status="A conexão direta falhou. Tentando pelo retransmissor...";
+            }));
             if(version!=_sessionVersion) { connection.Dispose(); return; }
             BindNativeConnection(connection,version);
         }
@@ -220,7 +239,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         connection.PresentationRevoked+=()=>OnUi(()=>{ if(version==_sessionVersion) { StopCapture(); Status="Outro participante assumiu a apresentação."; } });
         connection.ParticipantCountChanged+=count=>OnUi(()=>{ if(version==_sessionVersion) { _participantCount=count; Notify(nameof(ParticipantsText)); } });
         connection.Closed+=message=>OnUi(()=>{ if(version==_sessionVersion) { Reset(); Status=message; } });
-        Status="Conectado diretamente ao outro PC";
+        Status=connection.UsesRelay ? "Conectado pelo retransmissor" : "Conectado diretamente ao outro PC";
         IsInRoom=true;
         _=connection.RunAsync();
     }
@@ -338,7 +357,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private void ReportError(string text, int version) { if(version!=_sessionVersion) return; try { var dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Glimpse"); Directory.CreateDirectory(dir); File.AppendAllText(Path.Combine(dir,"errors.log"),$"{DateTimeOffset.Now:O} {text}{Environment.NewLine}"); } catch { } OnUi(()=>{ if(version==_sessionVersion) Status="Ocorreu um erro. Verifique o registro do aplicativo."; }); }
     private void OnUi(Action action) { if (_dispatcher.CheckAccess()) action(); else _dispatcher.BeginInvoke(action); }
     private void StopCapture() { bool local=IsSharingLocal; IsSharingLocal=false; _localPreviewBitmap=null; if(local) Frame=null; _captureCancellation?.Cancel(); _capture?.Dispose(); _encoder?.Dispose(); _capture=null; _encoder=null; _captureCancellation?.Dispose(); _captureCancellation=null; }
-    private void Reset() { _sessionVersion++; IsInRoom=false; _nativeConnection?.Dispose(); _nativeConnection=null; _nativeHub?.Dispose(); _nativeHub=null; _nativeHost?.Dispose(); _nativeHost=null; _routerMapping?.Dispose(); _routerMapping=null; _internetRoom?.Dispose(); _internetRoom=null; _roomHost?.Dispose(); _roomHost=null; StopCapture(); _sessionCancellation?.Cancel(); StopDecoder(); _peer?.Dispose(); _peer=null; _sessionCancellation?.Dispose(); _sessionCancellation=null; Frame=null; LocalText=""; _participantCount=0; Notify(nameof(ParticipantsText)); Notify(nameof(CanConfigureRoom)); }
+    private void Reset() { _sessionVersion++; IsInRoom=false; _nativeConnection?.Dispose(); _nativeConnection=null; _nativeHub?.Dispose(); _nativeHub=null; _nativeHost?.Dispose(); _nativeHost=null; _relayHost?.Dispose(); _relayHost=null; _routerMapping?.Dispose(); _routerMapping=null; _internetRoom?.Dispose(); _internetRoom=null; _roomHost?.Dispose(); _roomHost=null; StopCapture(); _sessionCancellation?.Cancel(); StopDecoder(); _peer?.Dispose(); _peer=null; _sessionCancellation?.Dispose(); _sessionCancellation=null; Frame=null; LocalText=""; _participantCount=0; Notify(nameof(ParticipantsText)); Notify(nameof(CanConfigureRoom)); }
     public void Dispose()=>Reset();
     private void Set<T>(ref T field,T value,[CallerMemberName]string? name=null) { if (!EqualityComparer<T>.Default.Equals(field,value)) {field=value;Notify(name);} }
     private void Notify([CallerMemberName]string? name=null)=>PropertyChanged?.Invoke(this,new PropertyChangedEventArgs(name));

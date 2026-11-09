@@ -237,8 +237,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         try {
             if(ShortRoomInvite.IsCode(code)) {
                 Status="Localizando a sala...";
-                var endpoint=RoomRelay.Endpoint() ?? throw new IOException("Este pacote não tem acesso a convites curtos. Atualize o Glimpse pelo GitHub.");
-                code=await ShortRoomInvite.ResolveAsync(endpoint,code,token);
+                code=await ShortRoomInvite.ResolveAsync(RoomRelay.Endpoint(),code,token);
                 Status="Conectando ao PC anfitrião...";
             }
             var connection=await NativeRoomConnection.JoinAsync(code,token,()=>OnUi(()=>{

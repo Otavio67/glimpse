@@ -57,7 +57,7 @@ bool testIce=args.Contains("--ice");
 bool testIceFallback=args.Contains("--ice-fallback");
 var relayEndpoint=RoomRelay.Endpoint();
 using var relayHost=args.Contains("--relay") || testIce || testIceFallback
-    ? await RelayHost.StartAsync(relayEndpoint ?? throw new Exception("Set GLIMPSE_RELAY_URL for relay tests."),host.Port,deadline.Token,
+    ? await RelayHost.StartAsync(relayEndpoint,host.Port,deadline.Token,
         testIceFallback ? new byte[32] : testIce ? host.IceKey() : null)
     : null;
 var remoteCode=relayHost is null ? code : host.Invite(IPAddress.Parse("127.0.0.2"),relayId:relayHost.Id);

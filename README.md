@@ -2,7 +2,7 @@
 
 ## Instalação no Windows
 
-**[⬇ Baixar Glimpse completo para Windows x64](https://github.com/Otavio67/glimpse/releases/download/v0.2.10-preview/Glimpse-Windows-x64.zip)**
+**[⬇ Baixar Glimpse completo para Windows x64](https://github.com/Otavio67/glimpse/releases/download/v0.2.11-preview/Glimpse-Windows-x64.zip)**
 
 Extraia o ZIP inteiro e dê dois cliques em **Abrir Glimpse.cmd**. O pacote já inclui o aplicativo, runtime .NET, bibliotecas e FFmpeg. Para criar atalhos na Área de Trabalho e no menu Iniciar, execute **Instalar Glimpse.cmd**. Não há downloads adicionais de dependências nesses dois caminhos. Requer Windows 10 2004 ou mais recente, x64. O download é público.
 

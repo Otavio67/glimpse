@@ -38,7 +38,7 @@ Ao criar a sala, o Glimpse abre uma conexão de espera com o retransmissor, quan
 
 O serviço de convite curto guarda apenas o convite criptografado enquanto o anfitrião está conectado. O código no fragmento da URL permite abrir e verificar o convite. Na tentativa de conexão ICE, o serviço encaminha apenas a sinalização criptografada. Se a negociação funcionar, o vídeo segue diretamente entre os PCs.
 
-O servidor é um Cloudflare Worker com Durable Objects, em `relay/`. Para preparar um pacote com o servidor ativo, informe `-RelayUrl wss://<servidor>` a `scripts/Build-Package.ps1`. O pacote contém o endereço do serviço, que é o mesmo para ambos os PCs. O teste `Glimpse.NativeRooms --relay --video` usa o endereço de `GLIMPSE_RELAY_URL`, força uma rota direta indisponível e exercita a entrada e a transmissão entre convidados. O [plano gratuito](https://developers.cloudflare.com/durable-objects/platform/pricing/) tem cotas e pode recusar novas conexões quando são atingidas.
+O servidor é um Cloudflare Worker com Durable Objects, em `relay/`. O endereço oficial já vem no Glimpse, inclusive quando compilado a partir do código-fonte. Para usar outro serviço em ambos os PCs, informe `-RelayUrl wss://<servidor>` a `scripts/Build-Package.ps1` ou configure `GLIMPSE_RELAY_URL`. O teste `Glimpse.NativeRooms --ice --video` resolve um convite curto, força uma rota TCP direta indisponível e exercita a entrada e a transmissão por ICE. O [plano gratuito](https://developers.cloudflare.com/durable-objects/platform/pricing/) tem cotas e pode recusar novas conexões quando são atingidas.
 
 ## Usar a mesma rede Radmin ou Hamachi
 

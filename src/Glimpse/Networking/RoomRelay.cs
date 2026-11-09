@@ -9,19 +9,25 @@ namespace Glimpse.Networking;
 
 internal static class RoomRelay
 {
-    public static Uri? Endpoint()
+    private static readonly Uri DefaultEndpoint=new("wss://glimpse-relay.silky-fur-00c.workers.dev/");
+
+    public static Uri Endpoint()
     {
-        var value=Environment.GetEnvironmentVariable("GLIMPSE_RELAY_URL");
-        if(string.IsNullOrWhiteSpace(value)) {
-            var file=Path.Combine(AppContext.BaseDirectory,"relay-url.txt");
-            if(!File.Exists(file)) return null;
-            try { value=File.ReadAllText(file).Trim(); }
-            catch(IOException) { return null; }
+        var environment=ParseEndpoint(Environment.GetEnvironmentVariable("GLIMPSE_RELAY_URL"));
+        if(environment is not null) return environment;
+
+        var file=Path.Combine(AppContext.BaseDirectory,"relay-url.txt");
+        try {
+            if(File.Exists(file) && ParseEndpoint(File.ReadAllText(file)) is { } configured) return configured;
         }
-        return Uri.TryCreate(value,UriKind.Absolute,out var uri) &&
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException) { }
+        return DefaultEndpoint;
+    }
+
+    private static Uri? ParseEndpoint(string? value) =>
+        Uri.TryCreate(value?.Trim(),UriKind.Absolute,out var uri) &&
             (uri.Scheme=="wss" || uri.Scheme=="ws" && uri.IsLoopback) &&
             string.IsNullOrEmpty(uri.UserInfo+uri.Query+uri.Fragment) && uri.AbsolutePath=="/" ? uri : null;
-    }
 
     public static ClientWebSocket CreateSocket()
     {

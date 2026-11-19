@@ -110,7 +110,7 @@ It generates artificial BGRA frames in memory, encodes them, sends them over two
 - `src/Glimpse/Encoding/H264Encoder.cs`, `H264Decoder.cs`, `AnnexBAccessUnits.cs`: FFmpeg process, H.264 access units and decoding.
 - `src/Glimpse/Networking/LocalPeer.cs` and `DirectRoom.cs`: WebRTC peer and encrypted direct LAN room negotiation.
 - `src/Glimpse/Views`, `ViewModels`: WPF presentation and session orchestration.
-- `src/Glimpse/Resources`: English and pt-BR resource files for primary UI labels. English is the default; for resource testing only, set `GLIMPSE_UI_CULTURE=pt-BR` before starting. Some tooltips, technical errors and status messages remain English.
+- `src/Glimpse/Resources`: English and pt-BR resource files for primary UI labels. pt-BR is the default; for resource testing only, set `GLIMPSE_UI_CULTURE=en-US` before starting. Most status messages are written directly in Portuguese and are not yet localized.
 - `tests/Glimpse.Headless`: artificial-video integration test in one process.
 - `tests/Glimpse.TwoProcess`: independent-process WebRTC test with generated frames and no screen capture.
 - `scripts/`: project-local dependency setup and build/test/run commands.

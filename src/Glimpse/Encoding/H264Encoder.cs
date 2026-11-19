@@ -26,10 +26,26 @@ public sealed class H264Encoder : IDisposable
     internal static Process Start(string arguments) {
         return Process.Start(CreateStartInfo(arguments)) ?? throw new InvalidOperationException("Não foi possível iniciar o FFmpeg.");
     }
-    internal static ProcessStartInfo CreateStartInfo(string arguments="") {
-        var file = Environment.GetEnvironmentVariable("GLIMPSE_FFMPEG");
-        if(string.IsNullOrWhiteSpace(file)) { file = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"); if (!File.Exists(file)) file = "ffmpeg.exe"; }
-        return new ProcessStartInfo(file, arguments) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+    internal static ProcessStartInfo CreateStartInfo(string arguments="") =>
+        new(FindFfmpeg(), arguments) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+
+    // Resolve FFmpeg up front so a missing component produces an actionable message instead of a Win32 error.
+    public static string FindFfmpeg() {
+        var configured = Environment.GetEnvironmentVariable("GLIMPSE_FFMPEG");
+        if(!string.IsNullOrWhiteSpace(configured)) {
+            if(File.Exists(configured)) return configured;
+            throw new FfmpegNotFoundException($"O FFmpeg configurado em GLIMPSE_FFMPEG não foi encontrado: {configured}");
+        }
+        var bundled = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe");
+        if(File.Exists(bundled)) return bundled;
+        foreach(var folder in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
+            try { var candidate = Path.Combine(folder.Trim('"'), "ffmpeg.exe"); if(File.Exists(candidate)) return candidate; }
+            catch(ArgumentException) { }
+        }
+        throw new FfmpegNotFoundException();
     }
     public void Dispose() { try { if (_process is { HasExited: false }) _process.Kill(true); } catch { } _process?.Dispose(); _process = null; }
 }
+
+public sealed class FfmpegNotFoundException(string? message=null) : FileNotFoundException(message ??
+    "O componente de vídeo (FFmpeg) não foi encontrado. Baixe o Glimpse completo na página de downloads e abra pelo \"Abrir Glimpse.cmd\", ou execute \"Instalar Glimpse.cmd\" novamente.");

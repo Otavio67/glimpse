@@ -80,11 +80,11 @@ internal sealed class RelayHost : IDisposable
     private RelayHost() { Id=SHA256.HashData(_key); }
     public byte[] Id { get; }
 
-    public static async Task<RelayHost> StartAsync(Uri endpoint,int port,CancellationToken token,byte[]? iceKey=null)
+    public static async Task<RelayHost> StartAsync(Uri endpoint,int port,CancellationToken token,byte[]? iceKey=null,TimeSpan? timeout=null)
     {
         var host=new RelayHost();
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        deadline.CancelAfter(timeout??TimeSpan.FromSeconds(10));
         try {
             var first=await host.WaitingSocketAsync(endpoint,deadline.Token);
             _=host.RunAsync(endpoint,port,first,token,iceKey);

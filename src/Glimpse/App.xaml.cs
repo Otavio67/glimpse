@@ -28,9 +28,9 @@ public partial class App : Application
             catch(Exception ex) { try { System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory,"installation-check.log"),ex.ToString()); } catch { } Shutdown(1); }
             return;
         }
-        // Português é o idioma padrão; GLIMPSE_UI_CULTURE permite testar outros recursos.
+        // Português é o idioma padrão (a maior parte da interface é escrita em português); GLIMPSE_UI_CULTURE permite testar outros recursos.
         var language = Environment.GetEnvironmentVariable("GLIMPSE_UI_CULTURE");
-        try { CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(string.IsNullOrWhiteSpace(language) ? "en-US" : language); }
+        try { CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(string.IsNullOrWhiteSpace(language) ? "pt-BR" : language); }
         catch (CultureNotFoundException) { CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("pt-BR"); }
         base.OnStartup(e);
         ShutdownMode=ShutdownMode.OnExplicitShutdown;

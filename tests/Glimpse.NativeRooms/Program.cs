@@ -36,6 +36,31 @@ try { using var wrongRoom=await NativeRoomConnection.JoinAsync((invite with {Fin
 catch(System.Security.Authentication.AuthenticationException ex) { Require(ex.Message.Contains("identidade da sala"),"The user was not told the room identity could not be confirmed."); }
 Console.WriteLine("Invitation validation, public/private IPv4 classification, wrong secret and wrong certificate passed.");
 
+using(var stalled=new TcpClient()) {
+    // Connects but never starts TLS; it must not hold the door for the 15-second handshake limit.
+    await stalled.ConnectAsync(IPAddress.Loopback,host.Port,deadline.Token);
+    var clock=System.Diagnostics.Stopwatch.StartNew();
+    using(var prompt=await NativeRoomConnection.JoinAsync(code,deadline.Token)) {
+        Require(clock.Elapsed<TimeSpan.FromSeconds(5),$"A stalled connection delayed a valid guest by {clock.Elapsed.TotalSeconds:F1}s.");
+        await UntilAsync(()=>hub.ParticipantCount==2);
+    }
+    await UntilAsync(()=>hub.ParticipantCount==1);
+}
+Console.WriteLine("A stalled unauthenticated connection did not delay a valid guest.");
+
+{
+    var timeout=new TimeoutException("O anfitrião não respondeu na porta TCP 45873.");
+    var remoteNoRelay=NativeRoomInvite.Parse(host.Invite(IPAddress.Parse("203.0.113.7")));
+    var remoteFailure=NativeRoomConnection.DirectOnlyFailure(remoteNoRelay,timeout);
+    Require(remoteFailure is IOException && remoteFailure.Message.Contains("rota reserva") && ReferenceEquals(remoteFailure.InnerException,timeout),
+        "A remote invite without relay did not explain the missing relay route.");
+    var lanNoRelay=NativeRoomInvite.Parse(host.Invite(IPAddress.Loopback));
+    Require(ReferenceEquals(NativeRoomConnection.DirectOnlyFailure(lanNoRelay,timeout),timeout),"A same-network failure lost its firewall guidance.");
+    var badIdentity=new System.Security.Authentication.AuthenticationException("identidade");
+    Require(ReferenceEquals(NativeRoomConnection.DirectOnlyFailure(remoteNoRelay,badIdentity),badIdentity),"An identity failure was reported as a missing relay.");
+}
+Console.WriteLine("Direct-only invites to another network explain the missing relay route.");
+
 if(Socket.OSSupportsIPv6) {
     using var dualStack=new NativeRoomHost(0,enableIPv6:true);
     var dualCode=dualStack.Invite(IPAddress.Parse("192.0.2.1"),ipv6:IPAddress.IPv6Loopback);

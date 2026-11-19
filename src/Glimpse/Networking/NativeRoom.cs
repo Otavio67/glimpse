@@ -89,29 +89,89 @@ public sealed class NativeRoomHost : IDisposable
     public string Invite(IPAddress address, int? publicPort=null, IPAddress? ipv6=null, IPAddress? lan=null, byte[]? relayId=null) =>
         new NativeRoomInvite(address,publicPort??Port,SHA256.HashData(_certificate.RawData),_secret,ipv6,lan,relayId).Encode();
     internal byte[] IceKey() => IceRoomStream.Key(_secret);
+
+    // TLS and secret checks run concurrently so one slow or hostile connection cannot hold the
+    // door for 15 seconds. Admission (room-full check and acknowledgement) stays serial in AcceptAsync.
+    private const int MaxConcurrentHandshakes=16;
+    private readonly Channel<(TcpClient Client,SslStream Stream)> _authenticated=
+        Channel.CreateUnbounded<(TcpClient,SslStream)>(new UnboundedChannelOptions { SingleReader=true });
+    private readonly SemaphoreSlim _handshakeSlots=new(MaxConcurrentHandshakes);
+    private readonly object _acceptGate=new();
+    private Task? _acceptLoop;
+
     public async Task<NativeRoomConnection> AcceptAsync(CancellationToken token,Func<bool>? canJoin=null)
     {
         using var lifetime=CancellationTokenSource.CreateLinkedTokenSource(token,_token);
+        lock(_acceptGate) _acceptLoop??=Task.Run(AcceptLoopAsync);
         try {
             while(true) {
-                var client=await _listener.AcceptTcpClientAsync(lifetime.Token);
-                var stream=new SslStream(client.GetStream(),false);
+                (TcpClient Client,SslStream Stream) candidate;
+                try { candidate=await _authenticated.Reader.ReadAsync(lifetime.Token); }
+                catch(ChannelClosedException ex) when(ex.InnerException is not null) { ExceptionDispatchInfo.Throw(ex.InnerException); throw; }
                 bool transferred=false;
                 try {
-                    using var attempt=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); attempt.CancelAfter(TimeSpan.FromSeconds(15));
-                    await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate=_certificate, EnabledSslProtocols=SslProtocols.Tls12|SslProtocols.Tls13 },attempt.Token);
-                    var secret=new byte[32]; await stream.ReadExactlyAsync(secret,attempt.Token);
-                    if(!CryptographicOperations.FixedTimeEquals(secret,_secret)) continue;
-                    if(canJoin is not null && !canJoin()) { await stream.WriteAsync(new byte[]{2},attempt.Token); continue; }
-                    await stream.WriteAsync(new byte[]{1},attempt.Token);
+                    using var attempt=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); attempt.CancelAfter(TimeSpan.FromSeconds(5));
+                    if(canJoin is not null && !canJoin()) { await candidate.Stream.WriteAsync(new byte[]{2},attempt.Token); continue; }
+                    await candidate.Stream.WriteAsync(new byte[]{1},attempt.Token);
                     transferred=true;
-                    return new NativeRoomConnection(client,stream);
+                    return new NativeRoomConnection(candidate.Client,candidate.Stream);
                 }
-                catch(Exception ex) when(!lifetime.IsCancellationRequested && ex is IOException or AuthenticationException or OperationCanceledException or SocketException) { }
-                finally { if(!transferred) { stream.Dispose(); client.Dispose(); } }
+                // The guest gave up while waiting for admission; try the next authenticated one.
+                catch(Exception ex) when(!lifetime.IsCancellationRequested && ex is IOException or OperationCanceledException or SocketException or ObjectDisposedException) { }
+                finally { if(!transferred) { candidate.Stream.Dispose(); candidate.Client.Dispose(); } }
             }
         }
-        finally { if(lifetime.IsCancellationRequested) _listener.Stop(); }
+        finally { if(lifetime.IsCancellationRequested) StopAccepting(); }
+    }
+
+    private async Task AcceptLoopAsync()
+    {
+        Exception? failure=null;
+        var handshakes=new List<Task>();
+        try {
+            while(true) {
+                await _handshakeSlots.WaitAsync(_token);
+                TcpClient client;
+                try { client=await _listener.AcceptTcpClientAsync(_token); }
+                catch { _handshakeSlots.Release(); throw; }
+                handshakes.RemoveAll(task=>task.IsCompleted);
+                handshakes.Add(HandshakeAsync(client));
+            }
+        }
+        catch(Exception) when(_token.IsCancellationRequested) { }
+        catch(Exception ex) { failure=ex; }
+        finally {
+            await Task.WhenAll(handshakes);
+            _authenticated.Writer.TryComplete(failure);
+            while(_authenticated.Reader.TryRead(out var left)) { left.Stream.Dispose(); left.Client.Dispose(); }
+        }
+    }
+
+    private async Task HandshakeAsync(TcpClient client)
+    {
+        SslStream? stream=null;
+        bool queued=false;
+        try {
+            stream=new SslStream(client.GetStream(),false);
+            using var attempt=CancellationTokenSource.CreateLinkedTokenSource(_token); attempt.CancelAfter(TimeSpan.FromSeconds(15));
+            await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate=_certificate, EnabledSslProtocols=SslProtocols.Tls12|SslProtocols.Tls13 },attempt.Token);
+            var secret=new byte[32]; await stream.ReadExactlyAsync(secret,attempt.Token);
+            if(!CryptographicOperations.FixedTimeEquals(secret,_secret)) return;
+            queued=_authenticated.Writer.TryWrite((client,stream));
+        }
+        // Unauthenticated attempts are dropped silently and leave the room available.
+        catch(Exception) { }
+        finally {
+            _handshakeSlots.Release();
+            if(!queued) { stream?.Dispose(); client.Dispose(); }
+        }
+    }
+
+    private void StopAccepting()
+    {
+        if(Volatile.Read(ref _disposed)!=0) return;
+        try { _stop.Cancel(); } catch(ObjectDisposedException) { }
+        _listener.Stop();
     }
     public static IPAddress LocalAddress()
     {
@@ -189,7 +249,7 @@ public sealed class NativeRoomConnection : IDisposable
             try { return await JoinEndpointAsync(invite,address,seconds,token); }
             catch(Exception ex) when(!token.IsCancellationRequested && ex is TimeoutException or AuthenticationException or NativeRoomRouteException) { directFailure=ex; }
         }
-        if(relay is null) ExceptionDispatchInfo.Throw(directFailure!);
+        if(relay is null) ExceptionDispatchInfo.Throw(DirectOnlyFailure(invite,directFailure!));
         if(invite.UseIce) {
             try { return await JoinIceAsync(invite,relay!,token); }
             catch(Exception ex) when(!token.IsCancellationRequested && ex is (IOException or HttpRequestException or WebSocketException or AuthenticationException or OperationCanceledException or InvalidOperationException or SocketException) and not RoomFullException) { }
@@ -197,6 +257,19 @@ public sealed class NativeRoomConnection : IDisposable
         tryingRelay?.Invoke();
         return await JoinRelayAsync(invite,relay!,token);
     }
+
+    // An invite without a relay route that points at another network almost always fails behind CGNAT.
+    // Tell the guest what actually fixes it instead of asking them about the host's router.
+    internal static Exception DirectOnlyFailure(NativeRoomInvite invite,Exception directFailure)
+    {
+        bool sameNetwork=NativeRoomHost.OnLocalSubnet(invite.Address) || invite.LanAddress is { } lan && NativeRoomHost.OnLocalSubnet(lan);
+        if(sameNetwork || directFailure is not (TimeoutException or NativeRoomRouteException)) return directFailure;
+        return new NoRelayRouteException(directFailure);
+    }
+    internal sealed class NoRelayRouteException(Exception inner) : IOException(
+        "Não foi possível alcançar o PC do anfitrião, e este convite não tem a rota reserva pelo retransmissor. "+
+        "Peçam para os dois usarem a versão mais recente do Glimpse e para o anfitrião criar a sala de novo. "+
+        "Quando a rota reserva está ativa, o link copiado tem um código curto de 16 caracteres.",inner);
 
     private static async Task<NativeRoomConnection> JoinIceAsync(NativeRoomInvite invite,Uri endpoint,CancellationToken token)
     {

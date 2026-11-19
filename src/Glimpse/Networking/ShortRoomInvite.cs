@@ -28,7 +28,7 @@ internal sealed class ShortRoomInvite : IDisposable
         var sealedText=Convert.ToBase64String(sealedBytes).TrimEnd('=').Replace('+','-').Replace('/','_');
         var address=Address(endpoint,code);
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(4));
+        deadline.CancelAfter(TimeSpan.FromSeconds(8));
         var socket=await OpenAsync(address,sealedText,deadline.Token);
         var registration=new ShortRoomInvite(code);
         _=registration.KeepAliveAsync(socket,address,sealedText,token);
